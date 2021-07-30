@@ -18,16 +18,9 @@
 name: Rust
 
 on:
+  # always trigger
   push:
-    paths:
-      - '.github/workflows/rust.yml'
-      - 'rust/**'
-      - 'format/Flight.proto'
   pull_request:
-    paths:
-      - '.github/workflows/rust.yml'
-      - 'rust/**'
-      - 'format/Flight.proto'
 
 jobs:
 
@@ -70,16 +63,7 @@ jobs:
         run: |
           export CARGO_HOME="/github/home/.cargo"
           export CARGO_TARGET_DIR="/github/home/target"
-          cd rust
           cargo build
-      # Ballista is currently not part of the main workspace so requires a separate build step
-      - name: Build Ballista
-        run: |
-          export CARGO_HOME="/github/home/.cargo"
-          export CARGO_TARGET_DIR="/github/home/target"
-          cd rust/ballista/rust
-          # snmalloc requires cmake so build without default features
-          cargo build --no-default-features
 
   # test the crate
   linux-test:
@@ -96,8 +80,8 @@ jobs:
         # Disable full debug symbol generation to speed up CI build and keep memory down
         # "1" means line tables only, which is useful for panic tracebacks.
         RUSTFLAGS: "-C debuginfo=1"
-        ARROW_TEST_DATA: /__w/arrow/arrow/testing/data
-        PARQUET_TEST_DATA: /__w/arrow/arrow/cpp/submodules/parquet-testing/data
+        ARROW_TEST_DATA: /__w/arrow-rs/arrow-rs/testing/data
+        PARQUET_TEST_DATA: /__w/arrow-rs/arrow-rs/parquet-testing/data
     steps:
       - uses: actions/checkout@v2
         with:
@@ -123,30 +107,17 @@ jobs:
         run: |
           export CARGO_HOME="/github/home/.cargo"
           export CARGO_TARGET_DIR="/github/home/target"
-          cd rust
           # run tests on all workspace members with default feature list
           cargo test
-          # test datafusion examples
-          cd datafusion-examples
-          cargo test --no-default-features
-          cargo run --example csv_sql
-          cargo run --example parquet_sql
-          cd ..
           cd arrow
           # re-run tests on arrow workspace with additional features
           cargo test --features=prettyprint
+          # run test on arrow with minimal set of features
+          cargo test --no-default-features
           cargo run --example builders
           cargo run --example dynamic_types
           cargo run --example read_csv
           cargo run --example read_csv_infer_schema
-      # Ballista is currently not part of the main workspace so requires a separate test step
-      - name: Run Ballista tests
-        run: |
-          export CARGO_HOME="/github/home/.cargo"
-          export CARGO_TARGET_DIR="/github/home/target"
-          cd rust/ballista/rust
-          # snmalloc requires cmake so build without default features
-          cargo test --no-default-features
 
   # test the --features "simd" of the arrow crate. This requires nightly.
   linux-test-simd:
@@ -155,14 +126,14 @@ jobs:
     strategy:
       matrix:
         arch: [amd64]
-        rust: [nightly-2021-03-24]
+        rust: [nightly-2021-07-04]
     container:
       image: ${{ matrix.arch }}/rust
       env:
         # Disable full debug symbol generation to speed up CI build and keep memory down
         # "1" means line tables only, which is useful for panic tracebacks.
         RUSTFLAGS: "-C debuginfo=1"
-        ARROW_TEST_DATA: /__w/arrow/arrow/testing/data
+        ARROW_TEST_DATA: /__w/arrow-rs/arrow-rs/testing/data
     steps:
       - uses: actions/checkout@v2
         with:
@@ -188,8 +159,14 @@ jobs:
         run: |
           export CARGO_HOME="/github/home/.cargo"
           export CARGO_TARGET_DIR="/github/home/target"
-          cd rust/arrow
+          cd arrow
           cargo test --features "simd"
+      - name: Check new project build with simd features
+        run: |
+          export CARGO_HOME="/github/home/.cargo"
+          export CARGO_TARGET_DIR="/github/home/target"
+          cd arrow/test/dependency/simd
+          cargo check
 
   windows-and-macos:
     name: Test on ${{ matrix.os }} Rust ${{ matrix.rust }}
@@ -213,10 +190,9 @@ jobs:
         shell: bash
         run: |
           export ARROW_TEST_DATA=$(pwd)/testing/data
-          export PARQUET_TEST_DATA=$(pwd)/cpp/submodules/parquet-testing/data
+          export PARQUET_TEST_DATA=$(pwd)/parquet-testing/data
           # do not produce debug symbols to keep memory usage down
           export RUSTFLAGS="-C debuginfo=0"
-          cd rust
           cargo test
 
   clippy:
@@ -258,43 +234,22 @@ jobs:
         run: |
           export CARGO_HOME="/github/home/.cargo"
           export CARGO_TARGET_DIR="/github/home/target"
-          cd rust
           cargo clippy --all-targets --workspace -- -D warnings -A clippy::redundant_field_names
 
-  miri-checks:
-    name: MIRI
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [amd64]
-        rust: [nightly-2021-03-24]
+    container:
+      image: amd64/rust
     steps:
       - uses: actions/checkout@v2
-        with:
-          submodules: true
-      - uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-miri-${{ hashFiles('**/Cargo.lock') }}
-      - name: Setup Rust toolchain
+      - name: Setup toolchain
         run: |
-          rustup toolchain install ${{ matrix.rust }}
-          rustup default ${{ matrix.rust }}
-          rustup component add rustfmt clippy miri
-      - name: Run Miri Checks
-        env:
-          RUST_BACKTRACE: full
-          RUST_LOG: 'trace'
-        run: |
-          export MIRIFLAGS="-Zmiri-disable-isolation"
-          cd rust
-          cargo miri setup
-          cargo clean
-          # Ignore MIRI errors until we can get a clean run
-          cargo miri test || true
+          rustup toolchain install stable
+          rustup default stable
+          rustup component add rustfmt
+      - name: Run
+        run: cargo fmt --all -- --check
 
   coverage:
     name: Coverage
@@ -325,62 +280,15 @@ jobs:
           export CARGO_TARGET_DIR="/home/runner/target"
 
           export ARROW_TEST_DATA=$(pwd)/testing/data
-          export PARQUET_TEST_DATA=$(pwd)/cpp/submodules/parquet-testing/data
+          export PARQUET_TEST_DATA=$(pwd)/parquet-testing/data
 
           # 2020-11-15: There is a cargo-tarpaulin regression in 0.17.0
           # see https://github.com/xd009642/tarpaulin/issues/618
           cargo install --version 0.16.0 cargo-tarpaulin
-          cd rust
           cargo tarpaulin --out Xml
       - name: Report coverage
         continue-on-error: true
         run: bash <(curl -s https://codecov.io/bash)
-
-  # test FFI against the C-Data interface exposed by pyarrow
-  pyarrow-integration-test:
-    name: Test Pyarrow C Data Interface
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust: [stable]
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          submodules: true
-      - name: Setup Rust toolchain
-        run: |
-          rustup toolchain install ${{ matrix.rust }}
-          rustup default ${{ matrix.rust }}
-          rustup component add rustfmt clippy
-      - name: Cache Cargo
-        uses: actions/cache@v2
-        with:
-          path: /home/runner/.cargo
-          key: cargo-maturin-cache-
-      - name: Cache Rust dependencies
-        uses: actions/cache@v2
-        with:
-          path: /home/runner/target
-          # this key is not equal because maturin uses different compilation flags.
-          key: ${{ runner.os }}-${{ matrix.arch }}-target-maturin-cache-${{ matrix.rust }}-
-      - uses: actions/setup-python@v2
-        with:
-          python-version: '3.7'
-      - name: Install Python dependencies
-        run: python -m pip install --upgrade pip setuptools wheel
-      - name: Run tests
-        run: |
-          export CARGO_HOME="/home/runner/.cargo"
-          export CARGO_TARGET_DIR="/home/runner/target"
-
-          cd rust/arrow-pyarrow-integration-testing
-
-          python -m venv venv
-          source venv/bin/activate
-
-          pip install maturin==0.8.2 toml==0.10.1 pyarrow==1.0.0
-          maturin develop
-          python -m unittest discover tests
 
   # test the arrow crate builds against wasm32 in stable rust
   wasm32-build:
@@ -389,15 +297,15 @@ jobs:
     strategy:
       matrix:
         arch: [amd64]
-        rust: [nightly-2021-03-24]
+        rust: [nightly-2021-07-04]
     container:
       image: ${{ matrix.arch }}/rust
       env:
         # Disable full debug symbol generation to speed up CI build and keep memory down
         # "1" means line tables only, which is useful for panic tracebacks.
         RUSTFLAGS: "-C debuginfo=1"
-        ARROW_TEST_DATA: /__w/arrow/arrow/testing/data
-        PARQUET_TEST_DATA: /__w/arrow/arrow/cpp/submodules/parquet-testing/data
+        ARROW_TEST_DATA: /__w/arrow-rs/arrow-rs/testing/data
+        PARQUET_TEST_DATA: /__w/arrow/arrow/parquet-testing/data
     steps:
       - uses: actions/checkout@v2
         with:
@@ -423,12 +331,12 @@ jobs:
         run: |
           export CARGO_HOME="/github/home/.cargo"
           export CARGO_TARGET_DIR="/github/home/target"
-          cd rust/arrow
-          cargo build --target wasm32-unknown-unknown
+          cd arrow
+          cargo build --features=js --target wasm32-unknown-unknown
 
-  # test the projects can build without default features
+  # test builds with various feature flags
   default-build:
-    name: Check No Defaults on AMD64 Rust ${{ matrix.rust }}
+    name: Arrow Feature Flag Builds ${{ matrix.rust }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -437,15 +345,10 @@ jobs:
     container:
       image: ${{ matrix.arch }}/rust
       env:
-        # Disable full debug symbol generation to speed up CI build and keep memory down
-        # "1" means line tables only, which is useful for panic tracebacks.
-        RUSTFLAGS: "-C debuginfo=1"
-        ARROW_TEST_DATA: /__w/arrow/arrow/testing/data
-        PARQUET_TEST_DATA: /__w/arrow/arrow/cpp/submodules/parquet-testing/data
+        # Disable debug symbol generation to speed up CI build and keep memory down
+        RUSTFLAGS: "-C debuginfo=0"
     steps:
       - uses: actions/checkout@v2
-        with:
-          submodules: true
       - name: Cache Cargo
         uses: actions/cache@v2
         with:
@@ -456,15 +359,22 @@ jobs:
         uses: actions/cache@v2
         with:
           path: /github/home/target
-          key: ${{ runner.os }}-${{ matrix.arch }}-target-wasm32-cache-${{ matrix.rust }}
+          # this key equals the ones on `linux-build-lib` for re-use
+          key: ${{ runner.os }}-${{ matrix.arch }}-target-cache-${{ matrix.rust }}
       - name: Setup Rust toolchain
         run: |
           rustup toolchain install ${{ matrix.rust }}
           rustup override set ${{ matrix.rust }}
           rustup component add rustfmt
-      - name: Build arrow crate
+      - name: Build with default features
         run: |
           export CARGO_HOME="/github/home/.cargo"
           export CARGO_TARGET_DIR="/github/home/target"
-          cd rust/arrow
-          cargo check --all-targets --no-default-features
+          cd arrow/test/dependency/default-features
+          cargo check
+      - name: Build with default-features=false
+        run: |
+          export CARGO_HOME="/github/home/.cargo"
+          export CARGO_TARGET_DIR="/github/home/target"
+          cd arrow/test/dependency/no-default-features
+          cargo check
