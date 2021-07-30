@@ -49,7 +49,6 @@ jobs:
     name: AMD64 Ubuntu ${{ matrix.ubuntu }} R ${{ matrix.r }}
     runs-on: ubuntu-latest
     if: ${{ !contains(github.event.pull_request.title, 'WIP') }}
-    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -107,7 +106,6 @@ jobs:
     name: "${{ matrix.config.org }}/${{ matrix.config.image }}:${{ matrix.config.tag }}"
     runs-on: ubuntu-latest
     if: ${{ !contains(github.event.pull_request.title, 'WIP') }}
-    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -165,7 +163,6 @@ jobs:
     name: AMD64 Windows RTools ${{ matrix.rtools }}
     runs-on: windows-latest
     if: ${{ !contains(github.event.pull_request.title, 'WIP') }}
-    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

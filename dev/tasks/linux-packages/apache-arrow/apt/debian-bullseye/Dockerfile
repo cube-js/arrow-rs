@@ -18,6 +18,8 @@
 ARG FROM=debian:bullseye
 FROM ${FROM}
 
+COPY qemu-* /usr/bin/
+
 RUN \
   echo "debconf debconf/frontend select Noninteractive" | \
     debconf-set-selections
@@ -35,7 +37,7 @@ RUN \
   apt install -y -V ${quiet} \
     build-essential \
     ccache \
-    clang \
+    clang-11 \
     cmake \
     debhelper \
     devscripts \
@@ -54,15 +56,13 @@ RUN \
     libgrpc++-dev \
     libgtest-dev \
     liblz4-dev \
-    libprotoc-dev \
-    libprotobuf-dev \
     libre2-dev \
     libsnappy-dev \
     libssl-dev \
     libthrift-dev \
     libutf8proc-dev \
     libzstd-dev \
-    llvm-dev \
+    llvm-11-dev \
     lsb-release \
     ninja-build \
     pkg-config \

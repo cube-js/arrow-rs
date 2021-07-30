@@ -52,10 +52,8 @@ jobs:
 
   docker:
     name: AMD64 Conda Integration Test
-    if: false # Disabled in CubeStore fork.
     runs-on: ubuntu-latest
     if: ${{ !contains(github.event.pull_request.title, 'WIP') }}
-    timeout-minutes: 60
     steps:
       - name: Checkout Arrow
         uses: actions/checkout@v2

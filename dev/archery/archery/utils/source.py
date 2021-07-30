@@ -69,11 +69,6 @@ class ArrowSources:
         return self.path / "dev"
 
     @property
-    def java(self):
-        """ Returns the java directory of an Arrow sources. """
-        return self.path / "java"
-
-    @property
     def python(self):
         """ Returns the python directory of an Arrow sources. """
         return self.path / "python"

@@ -18,6 +18,8 @@
 ARG FROM=centos:7
 FROM ${FROM}
 
+COPY qemu-* /usr/bin/
+
 ARG DEBUG
 
 RUN \

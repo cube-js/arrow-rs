@@ -54,7 +54,6 @@ jobs:
     name: AMD64 Ubuntu ${{ matrix.ubuntu }} GLib & Ruby
     runs-on: ubuntu-latest
     if: ${{ !contains(github.event.pull_request.title, 'WIP') }}
-    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -101,7 +100,6 @@ jobs:
     name: AMD64 MacOS 10.15 GLib & Ruby
     runs-on: macos-latest
     if: ${{ !contains(github.event.pull_request.title, 'WIP') }}
-    timeout-minutes: 40
     strategy:
       fail-fast: false
     env:
@@ -173,7 +171,6 @@ jobs:
     name: AMD64 Windows MinGW ${{ matrix.mingw-n-bits }} GLib & Ruby
     runs-on: windows-latest
     if: ${{ !contains(github.event.pull_request.title, 'WIP') }}
-    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:

@@ -28,6 +28,7 @@ RUN conda install \
         --file arrow/ci/conda_env_gandiva.yml \
         compilers \
         doxygen \
+        gdb \
         valgrind && \
     conda clean --all
 

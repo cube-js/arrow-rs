@@ -330,9 +330,6 @@ class PullRequest(object):
         return bool(self._pr_data["mergeable"])
 
     def _get_jira(self):
-        if self.title.startswith("MINOR:"):
-            return None
-
         jira_id = None
         for project, regex in PR_TITLE_REGEXEN:
             m = regex.search(self.title)
@@ -340,7 +337,7 @@ class PullRequest(object):
                 jira_id = m.group(1)
                 break
 
-        if jira_id is None:
+        if jira_id is None and not self.title.startswith("MINOR:"):
             options = ' or '.join('{0}-XXX'.format(project)
                                   for project in SUPPORTED_PROJECTS)
             self.cmd.fail("PR title should be prefixed by a jira id "

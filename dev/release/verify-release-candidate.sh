@@ -128,16 +128,14 @@ test_binary() {
   local download_dir=binaries
   mkdir -p ${download_dir}
 
-  ${PYTHON:-python} $SOURCE_DIR/download_rc_binaries.py $VERSION $RC_NUMBER \
+  python $SOURCE_DIR/download_rc_binaries.py $VERSION $RC_NUMBER \
          --dest=${download_dir}
 
   verify_dir_artifact_signatures ${download_dir}
 }
 
 test_apt() {
-  for target in "debian:bullseye" \
-                "arm64v8/debian:bullseye" \
-                "debian:buster" \
+  for target in "debian:buster" \
                 "arm64v8/debian:buster" \
                 "ubuntu:bionic" \
                 "arm64v8/ubuntu:bionic" \
@@ -146,11 +144,6 @@ test_apt() {
                 "ubuntu:groovy" \
                 "arm64v8/ubuntu:groovy"; do \
     case "${target}" in
-      arm64v8/debian:bullseye)
-        # qemu-user-static in Ubuntu 20.04 has a crash bug:
-        #   https://bugs.launchpad.net/qemu/+bug/1749393
-        continue
-        ;;
       arm64v8/*)
         if [ "$(arch)" = "aarch64" -o -e /usr/bin/qemu-aarch64-static ]; then
           : # OK
@@ -163,7 +156,8 @@ test_apt() {
            "${target}" \
            /arrow/dev/release/verify-apt.sh \
            "${VERSION}" \
-           "rc"; then
+           "rc" \
+           "${BINTRAY_REPOSITORY}"; then
       echo "Failed to verify the APT repository for ${target}"
       exit 1
     fi
@@ -187,7 +181,8 @@ test_yum() {
            "${target}" \
            /arrow/dev/release/verify-yum.sh \
            "${VERSION}" \
-           "rc"; then
+           "rc" \
+           "${BINTRAY_REPOSITORY}"; then
       echo "Failed to verify the Yum repository for ${target}"
       exit 1
     fi
@@ -222,8 +217,6 @@ setup_miniconda() {
     else
         MINICONDA_URL=https://repo.continuum.io/miniconda/Miniconda3-latest-MacOSX-x86_64.sh
     fi
-  elif [ "$(uname)" == "Linux" ] && [ "$(uname -m)" == "aarch64" ]; then
-    MINICONDA_URL=https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh
   else
     MINICONDA_URL=https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh
   fi
@@ -431,12 +424,9 @@ test_js() {
 test_ruby() {
   pushd ruby
 
-  local modules="red-arrow red-plasma red-parquet"
+  local modules="red-arrow red-plasma red-gandiva red-parquet"
   if [ "${ARROW_CUDA}" = "ON" ]; then
     modules="${modules} red-arrow-cuda"
-  fi
-  if [ "${ARROW_GANDIVA}" = "ON" ]; then
-    modules="${modules} red-gandiva"
   fi
 
   for module in ${modules}; do
@@ -495,7 +485,9 @@ test_rust() {
   # raises on any formatting errors
   rustup component add rustfmt --toolchain stable
   cargo +stable fmt --all -- --check
-  rustup default stable
+
+  # we are targeting Rust nightly for releases
+  rustup default nightly
 
   # use local modules because we don't publish modules to crates.io yet
   sed \
@@ -598,6 +590,8 @@ test_source_distribution() {
 }
 
 test_binary_distribution() {
+  : ${BINTRAY_REPOSITORY:=apache/arrow}
+
   if [ ${TEST_BINARY} -gt 0 ]; then
     test_binary
   fi
@@ -692,7 +686,6 @@ test_wheels() {
   fi
 
   python $SOURCE_DIR/download_rc_binaries.py $VERSION $RC_NUMBER \
-         --package_type python \
          --regex=${filter_regex} \
          --dest=${download_dir}
 
@@ -762,17 +755,7 @@ TEST_JS=$((${TEST_JS} + ${TEST_INTEGRATION_JS}))
 TEST_GO=$((${TEST_GO} + ${TEST_INTEGRATION_GO}))
 TEST_INTEGRATION=$((${TEST_INTEGRATION} + ${TEST_INTEGRATION_CPP} + ${TEST_INTEGRATION_JAVA} + ${TEST_INTEGRATION_JS} + ${TEST_INTEGRATION_GO}))
 
-if [ "${ARTIFACT}" == "source" ]; then
-  NEED_MINICONDA=$((${TEST_CPP} + ${TEST_INTEGRATION}))
-elif [ "${ARTIFACT}" == "wheels" ]; then
-  NEED_MINICONDA=$((${TEST_WHEELS}))
-else
-  if [ -z "${PYTHON:-}" ]; then
-    NEED_MINICONDA=$((${TEST_BINARY}))
-  else
-    NEED_MINICONDA=0
-  fi
-fi
+NEED_MINICONDA=$((${TEST_CPP} + ${TEST_WHEELS} + ${TEST_BINARY} + ${TEST_INTEGRATION}))
 
 : ${TEST_ARCHIVE:=apache-arrow-${VERSION}.tar.gz}
 case "${TEST_ARCHIVE}" in

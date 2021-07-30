@@ -39,23 +39,14 @@ curl \
 rm -rf ${archive_name}
 tar xf ${tar_gz}
 
-pushd ${archive_name}
-
-# clone the testing data to the appropiate directories
-git clone https://github.com/apache/arrow-testing.git testing
-git clone https://github.com/apache/parquet-testing.git cpp/submodules/parquet-testing
-
 # build the jni bindings similarly like the 01-perform.sh does
-mkdir -p cpp/java-build
-pushd cpp/java-build
+mkdir -p ${archive_name}/cpp/java-build
+pushd ${archive_name}/cpp/java-build
 cmake \
-  -DARROW_DATASET=ON \
-  -DARROW_FILESYSTEM=ON \
-  -DARROW_GANDIVA_JAVA=ON \
   -DARROW_GANDIVA=ON \
+  -DARROW_GANDIVA_JAVA=ON \
   -DARROW_JNI=ON \
   -DARROW_ORC=ON \
-  -DARROW_PARQUET=ON \
   -DCMAKE_BUILD_TYPE=release \
   -G Ninja \
   ..
@@ -63,12 +54,9 @@ ninja
 popd
 
 # go in the java subfolder
-pushd java
+pushd ${archive_name}/java
 # stage the artifacts using both the apache-release and arrow-jni profiles
-# Note: on ORC checkstyle failure use -Dcheckstyle.skip=true until https://issues.apache.org/jira/browse/ARROW-12552 gets resolved
-mvn -Papache-release,arrow-jni -Darrow.cpp.build.dir=$(realpath ../cpp/java-build/release) deploy
-popd
-
+mvn -Papache-release,arrow-jni -Darrow.cpp.build.dir=$(realpath ../cpp/java-build) deploy
 popd
 
 echo "Success! The maven artifacts have been stated. Proceed with the following steps:"

@@ -18,6 +18,8 @@
 ARG FROM=debian:buster
 FROM ${FROM}
 
+COPY qemu-* /usr/bin/
+
 RUN \
   echo "debconf debconf/frontend select Noninteractive" | \
     debconf-set-selections
@@ -72,8 +74,8 @@ RUN \
     tzdata \
     zlib1g-dev && \
   apt install -y -V -t buster-backports ${quiet} \
-    clang-11 \
-    llvm-11-dev && \
+    clang-8 \
+    llvm-8-dev && \
   if apt list | grep '^nvidia-cuda-toolkit/'; then \
     apt install -y -V ${quiet} nvidia-cuda-toolkit; \
   fi && \

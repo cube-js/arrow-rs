@@ -448,7 +448,7 @@ class MaintenanceMixin:
         if self.version.major == 0:
             # treat minor releases as major releases preceeding 1.0.0 release
             commit_range = "apache-arrow-0.{}.0..master".format(
-                self.version.minor
+                self.version.minor - 1
             )
         else:
             commit_range = "apache-arrow-{}.0.0..master".format(

@@ -48,9 +48,7 @@ jobs:
             script({github, context});
 
       - name: Check title
-        # Our fork does not require PRs to go through the JIRA.
         if: |
-          false &&
           github.event_name == 'pull_request_target' &&
             (github.event.action == 'opened' ||
              github.event.action == 'edited')

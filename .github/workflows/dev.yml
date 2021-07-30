@@ -60,7 +60,6 @@ jobs:
   release:
     name: Source Release and Merge Script
     runs-on: ubuntu-20.04
-    if: false # Disabled in CubeStore fork
     if: ${{ !contains(github.event.pull_request.title, 'WIP') }}
     env:
       GIT_AUTHOR_NAME: Github Actions

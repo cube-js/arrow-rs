@@ -37,14 +37,13 @@ jobs:
     if: ${{ !contains(github.event.pull_request.title, 'WIP') }}
     name: Archery Unittests and Crossbow Check Config
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
       - name: Checkout Arrow
         uses: actions/checkout@v2
         with:
           fetch-depth: 0
       - name: Git Fixup
-        if: ${{ github.ref != 'master' }}
+        if: ${{ github.event_name == 'pull_request' }}
         shell: bash
         run: git branch master origin/master
       - name: Free Up Disk Space

@@ -35,8 +35,7 @@ version_with_rc="${version}-rc${rc}"
 crossbow_job_prefix="release-${version_with_rc}"
 crossbow_package_dir="${SOURCE_DIR}/../../packages"
 
-: ${CROSSBOW_JOB_NUMBER:="0"}
-: ${CROSSBOW_JOB_ID:="${crossbow_job_prefix}-${CROSSBOW_JOB_NUMBER}"}
+: ${CROSSBOW_JOB_ID:="${crossbow_job_prefix}-0"}
 artifact_dir="${crossbow_package_dir}/${CROSSBOW_JOB_ID}"
 
 if [ ! -e "$artifact_dir" ]; then
@@ -51,6 +50,9 @@ fi
 
 cd "${SOURCE_DIR}"
 
+: ${BINTRAY_REPOSITORY_CUSTOM:=${BINTRAY_REPOSITORY:-}}
+: ${SOURCE_BINTRAY_REPOSITORY_CUSTOM:=${SOURCE_BINTRAY_REPOSITORY:-}}}
+
 if [ ! -f .env ]; then
   echo "You must create $(pwd)/.env"
   echo "You can use $(pwd)/.env.example as template"
@@ -58,7 +60,15 @@ if [ ! -f .env ]; then
 fi
 . .env
 
-. utils-binary.sh
+if [ -n "${BINTRAY_REPOSITORY_CUSTOM}" ]; then
+  BINTRAY_REPOSITORY=${BINTRAY_REPOSITORY_CUSTOM}
+fi
+
+if [ -n "${SOURCE_BINTRAY_REPOSITORY_CUSTOM}" ]; then
+  SOURCE_BINTRAY_REPOSITORY=${SOURCE_BINTRAY_REPOSITORY_CUSTOM}
+fi
+
+. binary-common.sh
 
 # By default upload all artifacts.
 # To deactivate one category, deactivate the category and all of its dependents.
@@ -120,6 +130,8 @@ docker_run \
     "${rake_tasks[@]}" \
     APT_TARGETS=$(IFS=,; echo "${apt_targets[*]}") \
     ARTIFACTS_DIR="${tmp_dir}/artifacts" \
+    BINTRAY_REPOSITORY=${BINTRAY_REPOSITORY} \
     RC=${rc} \
+    SOURCE_BINTRAY_REPOSITORY=${SOURCE_BINTRAY_REPOSITORY} \
     VERSION=${version} \
     YUM_TARGETS=$(IFS=,; echo "${yum_targets[*]}")

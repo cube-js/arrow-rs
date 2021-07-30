@@ -20,23 +20,27 @@
 {{ macros.github_header() }}
 
 jobs:
-  test:
-    name: Docker Test
-    runs-on: ubuntu-latest
+  package:
+    name: Package Gandiva
+    runs-on: macos-latest
     steps:
-      {{ macros.github_checkout_arrow()|indent }}
-      {{ macros.github_install_archery()|indent }}
-
-      - name: Free Up Disk Space
-        shell: bash
-        run: arrow/ci/scripts/util_cleanup.sh
-
-      - name: Execute Docker Build
-        shell: bash
-        {% if env is defined %}
+      - name: Checkout Arrow
+        run: |
+          git clone --no-checkout {{ arrow.remote }} arrow
+          git -C arrow fetch -t {{ arrow.remote }} {{ arrow.branch }}
+          if [ $CROSSBOW_USE_COMMIT_ID = true ]; then git -C arrow checkout {{ arrow.head }}; else git -C arrow checkout FETCH_HEAD; fi
+          git -C arrow submodule update --init --recursive
+      - name: Build Gandiva
+        run: |
+          cd arrow
+          mkdir -p dist
+          export ARROW_TEST_DATA=$PWD/testing/data
+          set -e
+          dev/tasks/gandiva-jars/build-cpp-osx.sh
+          dev/tasks/gandiva-jars/build-java.sh
         env:
-        {% for key, value in env.items() %}
-          {{ key }}: {{ value }}
-        {% endfor %}
-        {% endif %}
-        run: archery docker run -e SETUPTOOLS_SCM_PRETEND_VERSION="{{ arrow.no_rc_version }}" {{ run }}
+          OS_NAME: "osx"
+          CHECK_SHARED_DEPENDENCIES: true
+          MACOSX_DEPLOYMENT_TARGET: "10.11"
+
+      {{ macros.github_upload_releases("arrow/dist/*.jar")|indent }}
