@@ -35,7 +35,7 @@ pub struct Schema {
     pub(crate) fields: Vec<Field>,
     /// A map of key-value pairs containing additional meta data.
     #[serde(skip_serializing_if = "HashMap::is_empty")]
-    #[serde(default)]
+    #[serde(skip_deserializing)]
     pub(crate) metadata: HashMap<String, String>,
 }
 
@@ -344,6 +344,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "CubeStore ignores metadata during deserialization"]
     fn test_ser_de_metadata() {
         // ser/de with empty metadata
         let mut schema = Schema::new(vec![
