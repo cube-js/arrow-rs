@@ -770,21 +770,19 @@ where
         take_value_indices_from_list::<IndexType, OffsetType>(values, indices)?;
 
     let taken = take_impl::<OffsetType>(values.values().as_ref(), &list_indices, None)?;
-    // determine null count and null buffer, which are a function of `values` and `indices`
-    let mut null_count = 0;
+    // determine null buffer, which are a function of `values` and `indices`
     let num_bytes = bit_util::ceil(indices.len(), 8);
     let mut null_buf = MutableBuffer::new(num_bytes).with_bitset(num_bytes, true);
     {
         let null_slice = null_buf.as_slice_mut();
-        offsets[..].windows(2).enumerate().for_each(
-            |(i, window): (usize, &[OffsetType::Native])| {
-                if window[0] == window[1] {
-                    // offsets are equal, slot is null
-                    bit_util::unset_bit(null_slice, i);
-                    null_count += 1;
-                }
-            },
-        );
+        for i in 0..indices.len() {
+            let index = ToPrimitive::to_usize(&indices.value(i)).ok_or_else(|| {
+                ArrowError::ComputeError("Cast to usize failed".to_string())
+            })?;
+            if !indices.is_valid(i) || values.is_null(index) {
+                bit_util::unset_bit(null_slice, i);
+            }
+        }
     }
     let value_offsets = Buffer::from_slice_ref(&offsets);
     // create a new list with taken data and computed null information
@@ -1428,7 +1426,7 @@ mod tests {
             let list_data = ArrayData::builder(list_data_type.clone())
                 .len(4)
                 .add_buffer(value_offsets)
-                .null_bit_buffer(Buffer::from([0b10111101, 0b00000000]))
+                .null_bit_buffer(Buffer::from([0b1111]))
                 .add_child_data(value_data)
                 .build();
             let list_array = $list_array_type::from(list_data);
@@ -1501,7 +1499,7 @@ mod tests {
             let list_data = ArrayData::builder(list_data_type.clone())
                 .len(4)
                 .add_buffer(value_offsets)
-                .null_bit_buffer(Buffer::from([0b01111101]))
+                .null_bit_buffer(Buffer::from([0b1011]))
                 .add_child_data(value_data)
                 .build();
             let list_array = $list_array_type::from(list_data);
@@ -1764,6 +1762,22 @@ mod tests {
             vec![None],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn test_take_empty_list() {
+        let input = ListArray::from_iter_primitive::<Int64Type, _, _>(vec![
+            Some(vec![]),
+            None,
+            Some(vec![]),
+            Some(vec![Some(123), None]),
+            Some(vec![]),
+        ]);
+        let index = UInt32Array::from(vec![Some(0), Some(1), Some(2), Some(3), Some(4)]);
+
+        let output = take(&input, &index, None).unwrap();
+        let output = output.as_any().downcast_ref::<ListArray>().unwrap();
+        assert_eq!(output, &input);
     }
 
     #[test]
