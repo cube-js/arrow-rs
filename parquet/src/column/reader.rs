@@ -334,7 +334,7 @@ impl<T: DataType> ColumnReaderImpl<T> {
                             buf,
                             num_values,
                             encoding,
-                            num_nulls: _,
+                            num_nulls,
                             num_rows: _,
                             def_levels_byte_len,
                             rep_levels_byte_len,
@@ -380,7 +380,7 @@ impl<T: DataType> ColumnReaderImpl<T> {
                                 encoding,
                                 &buf,
                                 offset,
-                                num_values as usize,
+                                max(num_values - num_nulls, 0) as usize,
                             )?;
                             return Ok(true);
                         }

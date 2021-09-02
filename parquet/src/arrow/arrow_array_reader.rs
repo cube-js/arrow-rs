@@ -31,6 +31,7 @@ use arrow::{
     buffer::MutableBuffer,
     datatypes::{DataType as ArrowType, ToByteSlice},
 };
+use std::cmp::max;
 use std::{any::Any, collections::VecDeque, marker::PhantomData};
 use std::{cell::RefCell, rc::Rc};
 
@@ -359,7 +360,7 @@ impl<'a, C: ArrayConverter + 'a> ArrowArrayReader<'a, C> {
                 buf,
                 num_values,
                 encoding,
-                num_nulls: _,
+                num_nulls,
                 num_rows: _,
                 def_levels_byte_len,
                 rep_levels_byte_len,
@@ -410,7 +411,7 @@ impl<'a, C: ArrayConverter + 'a> ArrowArrayReader<'a, C> {
                 let values_buffer = buf.start_from(offset);
                 let value_iter = Self::get_value_decoder(
                     values_buffer,
-                    num_values as usize,
+                    max(num_values - num_nulls, 0) as usize,
                     encoding,
                     column_desc,
                     column_chunk_context,
