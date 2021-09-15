@@ -22,7 +22,7 @@
 //! `RUSTFLAGS="-C target-feature=+avx2"` for example.  See the documentation
 //! [here](https://doc.rust-lang.org/stable/core/arch/) for more information.
 
-use regex::Regex;
+use regex::RegexBuilder;
 use std::collections::HashMap;
 
 use crate::array::*;
@@ -226,6 +226,23 @@ pub fn like_utf8<OffsetSize: StringOffsetSizeTrait>(
     left: &GenericStringArray<OffsetSize>,
     right: &GenericStringArray<OffsetSize>,
 ) -> Result<BooleanArray> {
+    like_utf8_impl(left, right, true, false)
+}
+
+/// Case-insensitive version of [like_utf8]
+pub fn ilike_utf8<OffsetSize: StringOffsetSizeTrait>(
+    left: &GenericStringArray<OffsetSize>,
+    right: &GenericStringArray<OffsetSize>,
+) -> Result<BooleanArray> {
+    like_utf8_impl(left, right, false, false)
+}
+
+fn like_utf8_impl<OffsetSize: StringOffsetSizeTrait>(
+    left: &GenericStringArray<OffsetSize>,
+    right: &GenericStringArray<OffsetSize>,
+    case_sensitive: bool,
+    reverse_results: bool,
+) -> Result<BooleanArray> {
     let mut map = HashMap::new();
     if left.len() != right.len() {
         return Err(ArrowError::ComputeError(
@@ -245,17 +262,24 @@ pub fn like_utf8<OffsetSize: StringOffsetSizeTrait>(
             regex
         } else {
             let re_pattern = pat.replace("%", ".*").replace("_", ".");
-            let re = Regex::new(&format!("^{}$", re_pattern)).map_err(|e| {
-                ArrowError::ComputeError(format!(
-                    "Unable to build regex from LIKE pattern: {}",
-                    e
-                ))
-            })?;
+            let re = RegexBuilder::new(&format!("^{}$", re_pattern))
+                .case_insensitive(!case_sensitive)
+                .build()
+                .map_err(|e| {
+                    ArrowError::ComputeError(format!(
+                        "Unable to build regex from LIKE pattern: {}",
+                        e
+                    ))
+                })?;
             map.insert(pat, re);
             map.get(pat).unwrap()
         };
 
-        result.append(re.is_match(haystack));
+        let mut r = re.is_match(haystack);
+        if reverse_results {
+            r = !r;
+        }
+        result.append(r);
     }
 
     let data = ArrayData::new(
@@ -282,47 +306,88 @@ pub fn like_utf8_scalar<OffsetSize: StringOffsetSizeTrait>(
     left: &GenericStringArray<OffsetSize>,
     right: &str,
 ) -> Result<BooleanArray> {
+    like_utf8_scalar_impl(left, right, true, false)
+}
+
+/// Case-insensitive version of [like_utf8_scalar]
+pub fn ilike_utf8_scalar<OffsetSize: StringOffsetSizeTrait>(
+    left: &GenericStringArray<OffsetSize>,
+    right: &str,
+) -> Result<BooleanArray> {
+    like_utf8_scalar_impl(left, right, false, false)
+}
+
+fn like_utf8_scalar_impl<OffsetSize: StringOffsetSizeTrait>(
+    left: &GenericStringArray<OffsetSize>,
+    right: &str,
+    case_sensitive: bool,
+    reverse_results: bool,
+) -> Result<BooleanArray> {
     let null_bit_buffer = left.data().null_buffer().cloned();
     let bytes = bit_util::ceil(left.len(), 8);
     let mut bool_buf = MutableBuffer::from_len_zeroed(bytes);
     let bool_slice = bool_buf.as_slice_mut();
 
-    if !right.contains(is_like_pattern) {
+    if case_sensitive && !right.contains(is_like_pattern) {
         // fast path, can use equals
         for i in 0..left.len() {
-            if left.value(i) == right {
+            let mut r = left.value(i) == right;
+            if reverse_results {
+                r = !r;
+            }
+            if r {
                 bit_util::set_bit(bool_slice, i);
             }
         }
-    } else if right.ends_with('%') && !right[..right.len() - 1].contains(is_like_pattern)
+    } else if case_sensitive
+        && right.ends_with('%')
+        && !right[..right.len() - 1].contains(is_like_pattern)
     {
         // fast path, can use starts_with
         let starts_with = &right[..right.len() - 1];
         for i in 0..left.len() {
-            if left.value(i).starts_with(starts_with) {
+            let mut r = left.value(i).starts_with(starts_with);
+            if reverse_results {
+                r = !r;
+            }
+            if r {
                 bit_util::set_bit(bool_slice, i);
             }
         }
-    } else if right.starts_with('%') && !right[1..].contains(is_like_pattern) {
+    } else if case_sensitive
+        && right.starts_with('%')
+        && !right[1..].contains(is_like_pattern)
+    {
         // fast path, can use ends_with
         let ends_with = &right[1..];
         for i in 0..left.len() {
-            if left.value(i).ends_with(ends_with) {
+            let mut r = left.value(i).ends_with(ends_with);
+            if reverse_results {
+                r = !r;
+            }
+            if r {
                 bit_util::set_bit(bool_slice, i);
             }
         }
     } else {
         let re_pattern = right.replace("%", ".*").replace("_", ".");
-        let re = Regex::new(&format!("^{}$", re_pattern)).map_err(|e| {
-            ArrowError::ComputeError(format!(
-                "Unable to build regex from LIKE pattern: {}",
-                e
-            ))
-        })?;
+        let re = RegexBuilder::new(&format!("^{}$", re_pattern))
+            .case_insensitive(!case_sensitive)
+            .build()
+            .map_err(|e| {
+                ArrowError::ComputeError(format!(
+                    "Unable to build regex from LIKE pattern: {}",
+                    e
+                ))
+            })?;
 
         for i in 0..left.len() {
             let haystack = left.value(i);
-            if re.is_match(haystack) {
+            let mut r = re.is_match(haystack);
+            if reverse_results {
+                r = !r;
+            }
+            if r {
                 bit_util::set_bit(bool_slice, i);
             }
         }
@@ -348,48 +413,15 @@ pub fn nlike_utf8<OffsetSize: StringOffsetSizeTrait>(
     left: &GenericStringArray<OffsetSize>,
     right: &GenericStringArray<OffsetSize>,
 ) -> Result<BooleanArray> {
-    let mut map = HashMap::new();
-    if left.len() != right.len() {
-        return Err(ArrowError::ComputeError(
-            "Cannot perform comparison operation on arrays of different length"
-                .to_string(),
-        ));
-    }
+    like_utf8_impl(left, right, true, true)
+}
 
-    let null_bit_buffer =
-        combine_option_bitmap(left.data_ref(), right.data_ref(), left.len())?;
-
-    let mut result = BooleanBufferBuilder::new(left.len());
-    for i in 0..left.len() {
-        let haystack = left.value(i);
-        let pat = right.value(i);
-        let re = if let Some(ref regex) = map.get(pat) {
-            regex
-        } else {
-            let re_pattern = pat.replace("%", ".*").replace("_", ".");
-            let re = Regex::new(&format!("^{}$", re_pattern)).map_err(|e| {
-                ArrowError::ComputeError(format!(
-                    "Unable to build regex from LIKE pattern: {}",
-                    e
-                ))
-            })?;
-            map.insert(pat, re);
-            map.get(pat).unwrap()
-        };
-
-        result.append(!re.is_match(haystack));
-    }
-
-    let data = ArrayData::new(
-        DataType::Boolean,
-        left.len(),
-        None,
-        null_bit_buffer,
-        0,
-        vec![result.finish()],
-        vec![],
-    );
-    Ok(BooleanArray::from(data))
+/// Case-insensitive `NOT ILIKE` operator.
+pub fn nilike_utf8<OffsetSize: StringOffsetSizeTrait>(
+    left: &GenericStringArray<OffsetSize>,
+    right: &GenericStringArray<OffsetSize>,
+) -> Result<BooleanArray> {
+    like_utf8_impl(left, right, false, true)
 }
 
 /// Perform SQL `left NOT LIKE right` operation on [`StringArray`] /
@@ -400,49 +432,15 @@ pub fn nlike_utf8_scalar<OffsetSize: StringOffsetSizeTrait>(
     left: &GenericStringArray<OffsetSize>,
     right: &str,
 ) -> Result<BooleanArray> {
-    let null_bit_buffer = left.data().null_buffer().cloned();
-    let mut result = BooleanBufferBuilder::new(left.len());
+    like_utf8_scalar_impl(left, right, true, true)
+}
 
-    if !right.contains(is_like_pattern) {
-        // fast path, can use equals
-        for i in 0..left.len() {
-            result.append(left.value(i) != right);
-        }
-    } else if right.ends_with('%') && !right[..right.len() - 1].contains(is_like_pattern)
-    {
-        // fast path, can use ends_with
-        for i in 0..left.len() {
-            result.append(!left.value(i).starts_with(&right[..right.len() - 1]));
-        }
-    } else if right.starts_with('%') && !right[1..].contains(is_like_pattern) {
-        // fast path, can use starts_with
-        for i in 0..left.len() {
-            result.append(!left.value(i).ends_with(&right[1..]));
-        }
-    } else {
-        let re_pattern = right.replace("%", ".*").replace("_", ".");
-        let re = Regex::new(&format!("^{}$", re_pattern)).map_err(|e| {
-            ArrowError::ComputeError(format!(
-                "Unable to build regex from LIKE pattern: {}",
-                e
-            ))
-        })?;
-        for i in 0..left.len() {
-            let haystack = left.value(i);
-            result.append(!re.is_match(haystack));
-        }
-    }
-
-    let data = ArrayData::new(
-        DataType::Boolean,
-        left.len(),
-        None,
-        null_bit_buffer,
-        0,
-        vec![result.finish()],
-        vec![],
-    );
-    Ok(BooleanArray::from(data))
+/// Case-insensitive `NOT ILIKE` operator.
+pub fn nilike_utf8_scalar<OffsetSize: StringOffsetSizeTrait>(
+    left: &GenericStringArray<OffsetSize>,
+    right: &str,
+) -> Result<BooleanArray> {
+    like_utf8_scalar_impl(left, right, false, true)
 }
 
 pub fn eq_bool(left: &BooleanArray, right: &BooleanArray) -> Result<BooleanArray> {
