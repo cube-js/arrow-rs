@@ -16,10 +16,8 @@
 // under the License.
 
 use crate::error::{ArrowError, Result};
-use chrono::format::Fixed::{Nanosecond as FixedNanosecond, TimezoneOffsetColon};
-use chrono::format::Item::{Fixed, Literal, Numeric};
-use chrono::format::Numeric::Nanosecond;
-use chrono::format::Pad::Zero;
+use chrono::format::Fixed::{Nanosecond, TimezoneOffsetColon};
+use chrono::format::Item::{Fixed, Literal};
 use chrono::format::{Item, Parsed};
 use chrono::prelude::*;
 
@@ -107,7 +105,7 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
         // timezone offset, using ' ' as a separator
         // Example: 2020-09-08 13:42:29.190855-05:00
         // Full format string: "%Y-%m-%d %H:%M:%S%.f%:z".
-        const FORMAT1: [Item; 2] = [Fixed(FixedNanosecond), Fixed(TimezoneOffsetColon)];
+        const FORMAT1: [Item; 2] = [Fixed(Nanosecond), Fixed(TimezoneOffsetColon)];
         if let Ok(ts) = chrono::format::parse(&mut p, rest, FORMAT1.iter())
             .and_then(|()| p.to_datetime())
         {
@@ -117,7 +115,7 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
         // with an explicit Z, using ' ' as a separator
         // Example: 2020-09-08 13:42:29Z
         // Full format string: "%Y-%m-%d %H:%M:%S%.fZ".
-        const FORMAT2: [Item; 2] = [Fixed(FixedNanosecond), Literal("Z")];
+        const FORMAT2: [Item; 2] = [Fixed(Nanosecond), Literal("Z")];
         if let Ok(ts) = chrono::format::parse(&mut p, rest, FORMAT2.iter())
             .and_then(|()| p.to_datetime_with_timezone(&Utc))
         {
@@ -126,8 +124,8 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
 
         // without a timezone specifier as a local time, using ' ' as a separator
         // Example: 2020-09-08 13:42:29.190855
-        const FORMAT5: [Item; 2] = [Literal("."), Numeric(Nanosecond, Zero)];
-        // Full format string: "%Y-%m-%d %H:%M:%S.%f".
+        const FORMAT5: [Item; 1] = [Fixed(Nanosecond)];
+        // Full format string: "%Y-%m-%d %H:%M:%S%.f".
         if let Ok(ts) = chrono::format::parse(&mut p, rest, FORMAT5.iter())
             .and_then(|()| p.to_naive_datetime_with_offset(0))
         {
@@ -152,8 +150,8 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
     {
         // without a timezone specifier as a local time, using T as a separator
         // Example: 2020-09-08T13:42:29.190855
-        // Full format string: "%Y-%m-%dT%H:%M:%S.%f".
-        const FORMAT3: [Item; 2] = [Literal("."), Numeric(Nanosecond, Zero)];
+        // Full format string: "%Y-%m-%dT%H:%M:%S%.f".
+        const FORMAT3: [Item; 1] = [Fixed(Nanosecond)];
         if let Ok(ts) = chrono::format::parse(&mut p, rest, FORMAT3.iter())
             .and_then(|()| p.to_naive_datetime_with_offset(0))
         {
