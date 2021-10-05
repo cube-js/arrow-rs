@@ -116,23 +116,13 @@ pub struct ByteArray {
 
 impl PartialOrd for ByteArray {
     fn partial_cmp(&self, other: &ByteArray) -> Option<Ordering> {
-        if self.data.is_some() && other.data.is_some() {
-            match self.len().cmp(&other.len()) {
-                Ordering::Greater => Some(Ordering::Greater),
-                Ordering::Less => Some(Ordering::Less),
-                Ordering::Equal => {
-                    for (v1, v2) in self.data().iter().zip(other.data().iter()) {
-                        match v1.cmp(v2) {
-                            Ordering::Greater => return Some(Ordering::Greater),
-                            Ordering::Less => return Some(Ordering::Less),
-                            _ => {}
-                        }
-                    }
-                    Some(Ordering::Equal)
-                }
-            }
-        } else {
-            None
+        // Changed in CubeStore fork: we want to compare lexicographically (we store strings here).
+        // Original code uses other comparisons.
+        match (&self.data, &other.data) {
+            (None, None) => Some(Ordering::Equal),
+            (None, Some(_)) => Some(Ordering::Less),
+            (Some(_), None) => Some(Ordering::Greater),
+            (Some(a), Some(b)) => Some(a.data().cmp(b.data())),
         }
     }
 }
@@ -1356,7 +1346,7 @@ mod tests {
         let ba4 = ByteArray::from(vec![]);
         let ba5 = ByteArray::from(vec![2, 2, 3]);
 
-        assert!(ba1 > ba2);
+        assert!(ba2 > ba1);
         assert!(ba3 > ba1);
         assert!(ba1 > ba4);
         assert_eq!(ba1, ba11);
