@@ -24,20 +24,11 @@ use crate::datatypes::TimeUnit;
 use crate::datatypes::*;
 use crate::error::{ArrowError, Result};
 
+use crate::compute::kernels::merge::FloatCmp;
 use num::Float;
 
 /// Compare the values at two arbitrary indices in two arrays.
 pub type DynComparator = Box<dyn Fn(usize, usize) -> Ordering + Send + Sync>;
-
-/// compares two floats, placing NaNs at last
-fn cmp_nans_last<T: Float>(a: &T, b: &T) -> Ordering {
-    match (a.is_nan(), b.is_nan()) {
-        (true, true) => Ordering::Equal,
-        (true, false) => Ordering::Greater,
-        (false, true) => Ordering::Less,
-        _ => a.partial_cmp(b).unwrap(),
-    }
-}
 
 fn compare_primitives<T: ArrowPrimitiveType>(left: &Array, right: &Array) -> DynComparator
 where
@@ -57,11 +48,12 @@ fn compare_boolean(left: &Array, right: &Array) -> DynComparator {
 
 fn compare_float<T: ArrowPrimitiveType>(left: &Array, right: &Array) -> DynComparator
 where
-    T::Native: Float,
+    T::Native: Float + FloatCmp,
 {
     let left: PrimitiveArray<T> = PrimitiveArray::from(left.data().clone());
     let right: PrimitiveArray<T> = PrimitiveArray::from(right.data().clone());
-    Box::new(move |i, j| cmp_nans_last(&left.value(i), &right.value(j)))
+    // CubeStore-specific: use `total_cmp` instead of putting NaNs last.
+    Box::new(move |i, j| left.value(i).total_cmp(right.value(j)))
 }
 
 fn compare_string<T>(left: &Array, right: &Array) -> DynComparator
@@ -279,8 +271,8 @@ pub mod tests {
 
         let cmp = build_compare(&array, &array)?;
 
-        assert_eq!(Ordering::Equal, (cmp)(0, 1));
-        assert_eq!(Ordering::Equal, (cmp)(1, 0));
+        assert_eq!(Ordering::Less, (cmp)(0, 1));
+        assert_eq!(Ordering::Greater, (cmp)(1, 0));
         Ok(())
     }
 
