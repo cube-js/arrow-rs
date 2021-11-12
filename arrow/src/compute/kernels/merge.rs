@@ -509,7 +509,7 @@ struct FloatComparator<'a, F: ArrowPrimitiveType> {
     arrays: Vec<&'a PrimitiveArray<F>>,
 }
 
-trait FloatCmp {
+pub(crate) trait FloatCmp {
     fn total_cmp(self, r: Self) -> Ordering;
 }
 
