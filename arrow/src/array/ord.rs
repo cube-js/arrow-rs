@@ -126,6 +126,27 @@ pub fn build_compare(left: &Array, right: &Array) -> Result<DynComparator> {
         (Int16, Int16) => compare_primitives::<Int16Type>(left, right),
         (Int32, Int32) => compare_primitives::<Int32Type>(left, right),
         (Int64, Int64) => compare_primitives::<Int64Type>(left, right),
+        (Int64Decimal(0), Int64Decimal(0)) => {
+            compare_primitives::<Int64Decimal0Type>(left, right)
+        }
+        (Int64Decimal(1), Int64Decimal(1)) => {
+            compare_primitives::<Int64Decimal1Type>(left, right)
+        }
+        (Int64Decimal(2), Int64Decimal(2)) => {
+            compare_primitives::<Int64Decimal2Type>(left, right)
+        }
+        (Int64Decimal(3), Int64Decimal(3)) => {
+            compare_primitives::<Int64Decimal3Type>(left, right)
+        }
+        (Int64Decimal(4), Int64Decimal(4)) => {
+            compare_primitives::<Int64Decimal4Type>(left, right)
+        }
+        (Int64Decimal(5), Int64Decimal(5)) => {
+            compare_primitives::<Int64Decimal5Type>(left, right)
+        }
+        (Int64Decimal(10), Int64Decimal(10)) => {
+            compare_primitives::<Int64Decimal10Type>(left, right)
+        }
         (Float32, Float32) => compare_float::<Float32Type>(left, right),
         (Float64, Float64) => compare_float::<Float64Type>(left, right),
         (Date32, Date32) => compare_primitives::<Date32Type>(left, right),
