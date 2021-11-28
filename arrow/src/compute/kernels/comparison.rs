@@ -261,7 +261,19 @@ fn like_utf8_impl<OffsetSize: StringOffsetSizeTrait>(
         let re = if let Some(ref regex) = map.get(pat) {
             regex
         } else {
-            let re_pattern = pat.replace("%", ".*").replace("_", ".");
+            let mut prev_char = None;
+            let mut re_pattern = pat.replace(|c| {
+                let res = c == '%' && prev_char != Some('\\');
+                prev_char = Some(c);
+                res
+            }, ".*").replace("\\%", "%");
+
+            let mut prev_char = None;
+            re_pattern = re_pattern.replace(|c| {
+                let res = c == '_' && prev_char != Some('\\');
+                prev_char = Some(c);
+                res
+            }, ".").replace("\\_", "_");
             let re = RegexBuilder::new(&format!("^{}$", re_pattern))
                 .case_insensitive(!case_sensitive)
                 .build()
@@ -370,7 +382,19 @@ fn like_utf8_scalar_impl<OffsetSize: StringOffsetSizeTrait>(
             }
         }
     } else {
-        let re_pattern = right.replace("%", ".*").replace("_", ".");
+        let mut prev_char = None;
+        let mut re_pattern = right.replace(|c| {
+            let res = c == '%' && prev_char != Some('\\');
+            prev_char = Some(c);
+            res
+        }, ".*").replace("\\%", "%");
+
+        let mut prev_char = None;
+        re_pattern = re_pattern.replace(|c| {
+            let res = c == '_' && prev_char != Some('\\');
+            prev_char = Some(c);
+            res
+        }, ".").replace("\\_", "_");
         let re = RegexBuilder::new(&format!("^{}$", re_pattern))
             .case_insensitive(!case_sensitive)
             .build()
