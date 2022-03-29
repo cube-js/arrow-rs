@@ -93,7 +93,7 @@ pub type KeyValue = parquet_format::KeyValue;
 pub type FileMetaDataPtr = Arc<FileMetaData>;
 
 /// Metadata for a Parquet file.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FileMetaData {
     version: i32,
     num_rows: i64,
