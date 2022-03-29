@@ -157,7 +157,7 @@ impl ParquetFileArrowReader {
     }
 
     // Expose the reader metadata
-    pub fn get_metadata(&mut self) -> Arc<ParquetMetaData> {
+    pub fn get_metadata(&self) -> Arc<ParquetMetaData> {
         self.file_reader.metadata()
     }
 }
