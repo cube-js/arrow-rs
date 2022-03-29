@@ -46,16 +46,19 @@ use crate::schema::types::{
 };
 
 /// Global Parquet metadata.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ParquetMetaData {
-    file_metadata: FileMetaData,
+    file_metadata: Arc<FileMetaData>,
     row_groups: Vec<RowGroupMetaData>,
 }
 
 impl ParquetMetaData {
     /// Creates Parquet metadata from file metadata and a list of row group metadata `Arc`s
     /// for each available row group.
-    pub fn new(file_metadata: FileMetaData, row_groups: Vec<RowGroupMetaData>) -> Self {
+    pub fn new(
+        file_metadata: Arc<FileMetaData>,
+        row_groups: Vec<RowGroupMetaData>,
+    ) -> Self {
         ParquetMetaData {
             file_metadata,
             row_groups,
@@ -63,8 +66,8 @@ impl ParquetMetaData {
     }
 
     /// Returns file metadata as reference.
-    pub fn file_metadata(&self) -> &FileMetaData {
-        &self.file_metadata
+    pub fn file_metadata(&self) -> Arc<FileMetaData> {
+        self.file_metadata.clone()
     }
 
     /// Returns number of row groups in this file.

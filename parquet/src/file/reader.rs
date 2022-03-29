@@ -57,7 +57,7 @@ pub trait ChunkReader: Length {
 /// Parquet file, can get reader for each row group, and access record iterator.
 pub trait FileReader {
     /// Get metadata information about this file.
-    fn metadata(&self) -> &ParquetMetaData;
+    fn metadata(&self) -> Arc<ParquetMetaData>;
 
     /// Get the total number of row groups for this file.
     fn num_row_groups(&self) -> usize;

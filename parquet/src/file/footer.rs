@@ -117,7 +117,7 @@ pub fn parse_metadata<R: ChunkReader>(chunk_reader: &R) -> Result<ParquetMetaDat
         schema_descr,
         column_orders,
     );
-    Ok(ParquetMetaData::new(file_metadata, row_groups))
+    Ok(ParquetMetaData::new(Arc::new(file_metadata), row_groups))
 }
 
 /// Parses column orders from Thrift definition.

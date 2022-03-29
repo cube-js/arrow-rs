@@ -124,7 +124,7 @@ impl IntoIterator for SerializedFileReader<File> {
 /// A serialized implementation for Parquet [`FileReader`].
 pub struct SerializedFileReader<R: ChunkReader> {
     chunk_reader: Arc<R>,
-    metadata: ParquetMetaData,
+    metadata: Arc<ParquetMetaData>,
 }
 
 impl<R: 'static + ChunkReader> SerializedFileReader<R> {
@@ -134,8 +134,15 @@ impl<R: 'static + ChunkReader> SerializedFileReader<R> {
         let metadata = footer::parse_metadata(&chunk_reader)?;
         Ok(Self {
             chunk_reader: Arc::new(chunk_reader),
-            metadata,
+            metadata: Arc::new(metadata),
         })
+    }
+
+    pub fn new_with_metadata(chunk_reader: R, metadata: Arc<ParquetMetaData>) -> Self {
+        Self {
+            chunk_reader: Arc::new(chunk_reader),
+            metadata,
+        }
     }
 
     /// Filters row group metadata to only those row groups,
@@ -150,16 +157,16 @@ impl<R: 'static + ChunkReader> SerializedFileReader<R> {
                 filtered_row_groups.push(row_group_metadata.clone());
             }
         }
-        self.metadata = ParquetMetaData::new(
+        self.metadata = Arc::new(ParquetMetaData::new(
             self.metadata.file_metadata().clone(),
             filtered_row_groups,
-        );
+        ));
     }
 }
 
 impl<R: 'static + ChunkReader> FileReader for SerializedFileReader<R> {
-    fn metadata(&self) -> &ParquetMetaData {
-        &self.metadata
+    fn metadata(&self) -> Arc<ParquetMetaData> {
+        self.metadata.clone()
     }
 
     fn num_row_groups(&self) -> usize {
@@ -739,12 +746,8 @@ mod tests {
         let file = get_test_file("binary.parquet");
         let file_reader = Arc::new(SerializedFileReader::new(file).unwrap());
 
-        let metadata = file_reader
-            .metadata
-            .file_metadata()
-            .key_value_metadata()
-            .as_ref()
-            .unwrap();
+        let file_metadata = file_reader.metadata.file_metadata();
+        let metadata = file_metadata.key_value_metadata().as_ref().unwrap();
 
         assert_eq!(metadata.len(), 3);
 
