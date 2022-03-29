@@ -158,7 +158,7 @@ impl<R: 'static + ChunkReader> SerializedFileReader<R> {
             }
         }
         self.metadata = Arc::new(ParquetMetaData::new(
-            self.metadata.file_metadata().clone(),
+            self.metadata.file_metadata(),
             filtered_row_groups,
         ));
     }
