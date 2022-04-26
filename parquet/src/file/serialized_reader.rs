@@ -138,6 +138,14 @@ impl<R: 'static + ChunkReader> SerializedFileReader<R> {
         })
     }
 
+    /// Creates file reader from a Parquet file, using pre-read metadata.
+    pub fn new_with_metadata(chunk_reader: R, metadata: ParquetMetaData) -> Self {
+        Self {
+            chunk_reader: Arc::new(chunk_reader),
+            metadata,
+        }
+    }
+
     /// Filters row group metadata to only those row groups,
     /// for which the predicate function returns true
     pub fn filter_row_groups(
