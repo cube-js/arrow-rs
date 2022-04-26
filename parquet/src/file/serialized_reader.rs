@@ -138,6 +138,7 @@ impl<R: 'static + ChunkReader> SerializedFileReader<R> {
         })
     }
 
+    /// Creates file reader from a Parquet file, using pre-read metadata.
     pub fn new_with_metadata(chunk_reader: R, metadata: ParquetMetaData) -> Self {
         Self {
             chunk_reader: Arc::new(chunk_reader),
