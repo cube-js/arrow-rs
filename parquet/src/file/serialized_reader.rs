@@ -158,7 +158,7 @@ impl<R: 'static + ChunkReader> SerializedFileReader<R> {
                 filtered_row_groups.push(row_group_metadata.clone());
             }
         }
-        self.metadata = ParquetMetaData::new(
+        self.metadata = ParquetMetaData::new_with_size(
             self.metadata.file_metadata().clone(),
             filtered_row_groups,
             self.metadata.metadata_size(),
