@@ -50,15 +50,18 @@ use crate::schema::types::{
 pub struct ParquetMetaData {
     file_metadata: FileMetaData,
     row_groups: Vec<RowGroupMetaData>,
+    /// See footer::parse_metadata
+    metadata_size: usize,
 }
 
 impl ParquetMetaData {
     /// Creates Parquet metadata from file metadata and a list of row group metadata `Arc`s
     /// for each available row group.
-    pub fn new(file_metadata: FileMetaData, row_groups: Vec<RowGroupMetaData>) -> Self {
+    pub fn new(file_metadata: FileMetaData, row_groups: Vec<RowGroupMetaData>, metadata_size: usize) -> Self {
         ParquetMetaData {
             file_metadata,
             row_groups,
+            metadata_size,
         }
     }
 
