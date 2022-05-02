@@ -50,14 +50,18 @@ use crate::schema::types::{
 pub struct ParquetMetaData {
     file_metadata: FileMetaData,
     row_groups: Vec<RowGroupMetaData>,
-    /// See footer::parse_metadata
-    metadata_size: usize,
+    /// Size of serialized metadata. See footer::parse_metadata
+    metadata_size: u32,
 }
 
 impl ParquetMetaData {
     /// Creates Parquet metadata from file metadata and a list of row group metadata `Arc`s
     /// for each available row group.
-    pub fn new(file_metadata: FileMetaData, row_groups: Vec<RowGroupMetaData>, metadata_size: usize) -> Self {
+    pub fn new(file_metadata: FileMetaData, row_groups: Vec<RowGroupMetaData>) -> Self {
+        ParquetMetaData::new_with_size(file_metadata, row_groups, 0)
+    }
+
+    pub fn new_with_size(file_metadata: FileMetaData, row_groups: Vec<RowGroupMetaData>, metadata_size: u32) -> Self {
         ParquetMetaData {
             file_metadata,
             row_groups,
@@ -74,6 +78,8 @@ impl ParquetMetaData {
     pub fn num_row_groups(&self) -> usize {
         self.row_groups.len()
     }
+
+    pub fn metadata_size(&self) -> u32 { self.metadata_size }
 
     /// Returns row group metadata for `i`th position.
     /// Position should be less than number of row groups `num_row_groups`.
