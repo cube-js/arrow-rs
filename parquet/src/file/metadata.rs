@@ -61,7 +61,11 @@ impl ParquetMetaData {
         ParquetMetaData::new_with_size(file_metadata, row_groups, 0)
     }
 
-    pub fn new_with_size(file_metadata: FileMetaData, row_groups: Vec<RowGroupMetaData>, metadata_size: u32) -> Self {
+    pub fn new_with_size(
+        file_metadata: FileMetaData,
+        row_groups: Vec<RowGroupMetaData>,
+        metadata_size: u32,
+    ) -> Self {
         ParquetMetaData {
             file_metadata,
             row_groups,
@@ -79,7 +83,9 @@ impl ParquetMetaData {
         self.row_groups.len()
     }
 
-    pub fn metadata_size(&self) -> u32 { self.metadata_size }
+    pub fn metadata_size(&self) -> u32 {
+        self.metadata_size
+    }
 
     /// Returns row group metadata for `i`th position.
     /// Position should be less than number of row groups `num_row_groups`.
