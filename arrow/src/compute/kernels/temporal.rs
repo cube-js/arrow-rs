@@ -106,6 +106,72 @@ macro_rules! extract_component_from_array {
     };
 }
 
+macro_rules! extract_mapped_component_from_array {
+    ($array:ident, $builder:ident, $extract_fn:ident, $using:ident, $mapper:expr) => {
+        for i in 0..$array.len() {
+            if $array.is_null(i) {
+                $builder.append_null()?;
+            } else {
+                match $array.$using(i) {
+                    Some(dt) => {
+                        $builder.append_value($mapper(dt.$extract_fn() as i32))?
+                    }
+                    None => $builder.append_null()?,
+                }
+            }
+        }
+    };
+    ($array:ident, $builder:ident, $extract_fn:ident, $using:ident, $tz:ident, $parsed:ident, $mapper:expr) => {
+        if ($tz.starts_with('+') || $tz.starts_with('-')) && !$tz.contains(':') {
+            return_compute_error_with!(
+                "Invalid timezone",
+                "Expected format [+-]XX:XX".to_string()
+            )
+        } else {
+            let tz_parse_result = parse(&mut $parsed, $tz, StrftimeItems::new("%z"));
+            let fixed_offset_from_parsed = match tz_parse_result {
+                Ok(_) => match $parsed.to_fixed_offset() {
+                    Ok(fo) => Some(fo),
+                    err => return_compute_error_with!("Invalid timezone", err),
+                },
+                _ => None,
+            };
+
+            for i in 0..$array.len() {
+                if $array.is_null(i) {
+                    $builder.append_null()?;
+                } else {
+                    match $array.value_as_datetime(i) {
+                        Some(utc) => {
+                            let fixed_offset = match fixed_offset_from_parsed {
+                                Some(fo) => fo,
+                                None => match using_chrono_tz_and_utc_naive_date_time(
+                                    $tz, utc,
+                                ) {
+                                    Some(fo) => fo,
+                                    err => return_compute_error_with!(
+                                        "Unable to parse timezone",
+                                        err
+                                    ),
+                                },
+                            };
+                            match $array.$using(i, fixed_offset) {
+                                Some(dt) => $builder
+                                    .append_value($mapper(dt.$extract_fn() as i32))?,
+                                None => $builder.append_null()?,
+                            }
+                        }
+                        err => return_compute_error_with!(
+                            "Unable to read value as datetime",
+                            err
+                        ),
+                    }
+                }
+            }
+        }
+    };
+}
+
 macro_rules! return_compute_error_with {
     ($msg:expr, $param:expr) => {
         return { Err(ArrowError::ComputeError(format!("{}: {:?}", $msg, $param))) }
@@ -178,6 +244,42 @@ where
             extract_component_from_array!(array, b, year, value_as_datetime)
         }
         dt => return_compute_error_with!("year does not support", dt),
+    }
+
+    Ok(b.finish())
+}
+
+/// Extracts the quarter of a given temporal array as an array of integers
+pub fn quarter<T>(array: &PrimitiveArray<T>) -> Result<Int32Array>
+where
+    T: ArrowTemporalType + ArrowNumericType,
+    i64: std::convert::From<T::Native>,
+{
+    let mapper = |month| (month - 1) / 3 + 1;
+    let mut b = Int32Builder::new(array.len());
+    match array.data_type() {
+        &DataType::Date32 | &DataType::Date64 | &DataType::Timestamp(_, None) => {
+            extract_mapped_component_from_array!(
+                array,
+                b,
+                month,
+                value_as_datetime,
+                mapper
+            )
+        }
+        &DataType::Timestamp(_, Some(ref tz)) => {
+            let mut scratch = Parsed::new();
+            extract_mapped_component_from_array!(
+                array,
+                b,
+                month,
+                value_as_datetime_with_tz,
+                tz,
+                scratch,
+                mapper
+            )
+        }
+        dt => return_compute_error_with!("quarter does not support", dt),
     }
 
     Ok(b.finish())
@@ -387,6 +489,48 @@ mod tests {
         assert_eq!(2011, b.value(0));
         assert!(!b.is_valid(1));
         assert_eq!(2012, b.value(2));
+    }
+
+    #[test]
+    fn test_temporal_array_date64_quarter() {
+        //1514764800000 -> 2018-01-01
+        //1566275025000 -> 2019-08-20
+        let a: PrimitiveArray<Date64Type> =
+            vec![Some(1514764800000), None, Some(1566275025000)].into();
+
+        let b = quarter(&a).unwrap();
+        assert_eq!(1, b.value(0));
+        assert!(!b.is_valid(1));
+        assert_eq!(3, b.value(2));
+    }
+
+    #[test]
+    fn test_temporal_array_date32_quarter() {
+        let a: PrimitiveArray<Date32Type> = vec![Some(1), None, Some(300)].into();
+
+        let b = quarter(&a).unwrap();
+        assert_eq!(1, b.value(0));
+        assert!(!b.is_valid(1));
+        assert_eq!(4, b.value(2));
+    }
+
+    #[test]
+    fn test_temporal_array_timestamp_quarter_with_timezone() {
+        use std::sync::Arc;
+
+        // 24 * 60 * 60 = 8640
+        let a = Arc::new(TimestampSecondArray::from_vec(
+            vec![86400 * 90],
+            Some("+00:00".to_string()),
+        ));
+        let b = quarter(&a).unwrap();
+        assert_eq!(2, b.value(0));
+        let a = Arc::new(TimestampSecondArray::from_vec(
+            vec![86400 * 90],
+            Some("-10:00".to_string()),
+        ));
+        let b = quarter(&a).unwrap();
+        assert_eq!(1, b.value(0));
     }
 
     #[test]
