@@ -210,7 +210,7 @@ impl Schema {
     /// Find the index of the column with the given name.
     pub fn index_of(&self, name: &str) -> Result<usize> {
         for i in 0..self.fields.len() {
-            if self.fields[i].name() == name {
+            if self.fields[i].name().to_ascii_lowercase() == name.to_ascii_lowercase() {
                 return Ok(i);
             }
         }
