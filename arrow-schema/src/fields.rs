@@ -83,6 +83,18 @@ impl Fields {
         self.0.iter().enumerate().find(|(_, b)| b.name() == name)
     }
 
+    /// Searches for a field by name, ignoring ASCII case, returning it along with its index
+    /// if found
+    ///
+    /// If several fields match, the first one in field order is returned, even when a later
+    /// field matches `name` exactly.
+    pub fn find_ignore_case(&self, name: &str) -> Option<(usize, &FieldRef)> {
+        self.0
+            .iter()
+            .enumerate()
+            .find(|(_, b)| b.name().eq_ignore_ascii_case(name))
+    }
+
     /// Check to see if `self` is a superset of `other`
     ///
     /// In particular returns true if both have the same number of fields, and [`Field::contains`]
@@ -677,6 +689,28 @@ impl FromIterator<(i8, FieldRef)> for UnionFields {
 mod tests {
     use super::*;
     use crate::UnionMode;
+
+    #[test]
+    fn test_find_ignore_case() {
+        let fields = Fields::from(vec![
+            Field::new("First_Name", DataType::Utf8, false),
+            Field::new("last_name", DataType::Utf8, false),
+            Field::new("LAST_NAME", DataType::Utf8, false),
+        ]);
+
+        let (idx, field) = fields.find_ignore_case("first_name").unwrap();
+        assert_eq!(idx, 0);
+        assert_eq!(field.name(), "First_Name");
+        assert!(fields.find("first_name").is_none());
+
+        // The first match in field order wins, even over a later exact match
+        let (idx, field) = fields.find_ignore_case("LAST_NAME").unwrap();
+        assert_eq!(idx, 1);
+        assert_eq!(field.name(), "last_name");
+        assert_eq!(fields.find("LAST_NAME").unwrap().0, 2);
+
+        assert!(fields.find_ignore_case("nickname").is_none());
+    }
 
     #[test]
     fn test_filter() {

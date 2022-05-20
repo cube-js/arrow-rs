@@ -523,6 +523,19 @@ impl Schema {
         Ok(idx)
     }
 
+    /// Find the index of the column with the given name, ignoring ASCII case.
+    ///
+    /// Returns the first matching field in field order, see [`Fields::find_ignore_case`].
+    pub fn index_of_ignore_case(&self, name: &str) -> Result<usize, ArrowError> {
+        let (idx, _) = self.fields().find_ignore_case(name).ok_or_else(|| {
+            let valid_fields: Vec<_> = self.fields.iter().map(|f| f.name()).collect();
+            ArrowError::SchemaError(format!(
+                "Unable to get field named \"{name}\". Valid fields: {valid_fields:?}"
+            ))
+        })?;
+        Ok(idx)
+    }
+
     /// Returns an immutable reference to the Map of custom metadata key-value pairs.
     #[inline]
     pub const fn metadata(&self) -> &Metadata {
@@ -874,6 +887,51 @@ mod tests {
         assert_eq!(schema.index_of("first_name").unwrap(), 0);
         assert_eq!(schema.index_of("last_name").unwrap(), 1);
         schema.index_of("nickname").unwrap();
+    }
+
+    #[test]
+    fn schema_index_of_ignore_case() {
+        let schema = Schema::new(vec![
+            Field::new("First_Name", DataType::Utf8, false),
+            Field::new("last_name", DataType::Utf8, false),
+            Field::new("Café", DataType::Utf8, false),
+        ]);
+        assert_eq!(schema.index_of_ignore_case("First_Name").unwrap(), 0);
+        assert_eq!(schema.index_of_ignore_case("first_name").unwrap(), 0);
+        assert_eq!(schema.index_of_ignore_case("FIRST_NAME").unwrap(), 0);
+        assert_eq!(schema.index_of_ignore_case("LAST_NAME").unwrap(), 1);
+        assert_eq!(schema.index_of_ignore_case("CAFé").unwrap(), 2);
+
+        // Only ASCII letters are folded
+        assert!(schema.index_of_ignore_case("CAFÉ").is_err());
+
+        // index_of stays case-sensitive
+        assert_eq!(schema.index_of("First_Name").unwrap(), 0);
+        assert!(schema.index_of("first_name").is_err());
+        assert!(schema.index_of("LAST_NAME").is_err());
+
+        let err = schema.index_of_ignore_case("nickname").unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Schema error: Unable to get field named \"nickname\". \
+             Valid fields: [\"First_Name\", \"last_name\", \"Café\"]"
+        );
+        assert_eq!(
+            err.to_string(),
+            schema.index_of("nickname").unwrap_err().to_string()
+        );
+    }
+
+    #[test]
+    fn schema_index_of_ignore_case_first_match() {
+        // The first case-insensitive match wins, even over a later exact match
+        let schema = Schema::new(vec![
+            Field::new("A", DataType::Utf8, false),
+            Field::new("a", DataType::Utf8, false),
+        ]);
+        assert_eq!(schema.index_of_ignore_case("a").unwrap(), 0);
+        assert_eq!(schema.index_of_ignore_case("A").unwrap(), 0);
+        assert_eq!(schema.index_of("a").unwrap(), 1);
     }
 
     #[test]
