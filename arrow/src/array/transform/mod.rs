@@ -614,10 +614,12 @@ impl<'a> MutableArrayData<'a> {
 
     /// Extends this [MutableArrayData] with null elements, disregarding the bound arrays
     pub fn extend_nulls(&mut self, len: usize) {
-        // TODO: null_buffer should probably be extended here as well
-        // otherwise is_valid() could later panic
-        // add test to confirm
         self.data.null_count += len;
+
+        let null_bytes_count = bit_util::ceil(self.data.len  + len, 8);
+        if null_bytes_count > self.data.null_buffer.len() {
+            self.data.null_buffer.resize(null_bytes_count, 0x00);
+        }
         (self.extend_nulls)(&mut self.data, len);
         self.data.len += len;
     }
