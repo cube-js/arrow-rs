@@ -733,6 +733,39 @@ mod tests {
     }
 
     #[test]
+    fn test_extend_nulls() {
+        let b = UInt8Array::from(vec![Some(1), Some(2), Some(3)]);
+        let arrays = vec![b.data()];
+        let mut a = MutableArrayData::new(arrays, true, 2);
+        assert_eq!(a.data.null_buffer.len(), 1);
+        a.extend(0, 0, 3);
+        a.extend_nulls(6);
+        assert_eq!(a.data.null_buffer.len(), 2);
+        let result = a.freeze();
+        let array = UInt8Array::from(result);
+        assert_eq!(array.data().null_buffer().unwrap().len(), 2);
+        let expected = UInt8Array::from(vec![Some(1), Some(2), Some(3), None, None, None, None, None, None]);
+        assert_eq!(array, expected);
+
+        let b = UInt8Array::from(vec![Some(1), Some(2), Some(3)]);
+        let arrays = vec![b.data()];
+        let mut a = MutableArrayData::new(arrays, true, 2);
+        assert_eq!(a.data.null_buffer.len(), 1);
+        a.extend(0, 0, 3);
+        a.extend_nulls(6);
+        assert_eq!(a.data.null_buffer.len(), 2);
+        a.extend(0, 0, 3);
+        assert_eq!(a.data.null_buffer.len(), 2);
+        let result = a.freeze();
+        let array = UInt8Array::from(result);
+        assert_eq!(array.data().null_buffer().unwrap().len(), 2);
+        let expected = UInt8Array::from(vec![Some(1), Some(2), Some(3), None, None, None, None, None, None, Some(1), Some(2), Some(3)]);
+        assert_eq!(array, expected);
+
+    }
+
+
+    #[test]
     fn test_list_null_offset() -> Result<()> {
         let int_builder = Int64Builder::new(24);
         let mut builder = ListBuilder::<Int64Builder>::new(int_builder);
