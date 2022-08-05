@@ -614,10 +614,12 @@ impl<'a> MutableArrayData<'a> {
 
     /// Extends this [MutableArrayData] with null elements, disregarding the bound arrays
     pub fn extend_nulls(&mut self, len: usize) {
-        // TODO: null_buffer should probably be extended here as well
-        // otherwise is_valid() could later panic
-        // add test to confirm
         self.data.null_count += len;
+
+        let null_bytes_count = bit_util::ceil(self.data.len  + len, 8);
+        if null_bytes_count > self.data.null_buffer.len() {
+            self.data.null_buffer.resize(null_bytes_count, 0x00);
+        }
         (self.extend_nulls)(&mut self.data, len);
         self.data.len += len;
     }
@@ -729,6 +731,39 @@ mod tests {
             UInt8Array::from(vec![Some(2), Some(3), None, None, None, Some(3)]);
         assert_eq!(array, expected);
     }
+
+    #[test]
+    fn test_extend_nulls() {
+        let b = UInt8Array::from(vec![Some(1), Some(2), Some(3)]);
+        let arrays = vec![b.data()];
+        let mut a = MutableArrayData::new(arrays, true, 2);
+        assert_eq!(a.data.null_buffer.len(), 1);
+        a.extend(0, 0, 3);
+        a.extend_nulls(6);
+        assert_eq!(a.data.null_buffer.len(), 2);
+        let result = a.freeze();
+        let array = UInt8Array::from(result);
+        assert_eq!(array.data().null_buffer().unwrap().len(), 2);
+        let expected = UInt8Array::from(vec![Some(1), Some(2), Some(3), None, None, None, None, None, None]);
+        assert_eq!(array, expected);
+
+        let b = UInt8Array::from(vec![Some(1), Some(2), Some(3)]);
+        let arrays = vec![b.data()];
+        let mut a = MutableArrayData::new(arrays, true, 2);
+        assert_eq!(a.data.null_buffer.len(), 1);
+        a.extend(0, 0, 3);
+        a.extend_nulls(6);
+        assert_eq!(a.data.null_buffer.len(), 2);
+        a.extend(0, 0, 3);
+        assert_eq!(a.data.null_buffer.len(), 2);
+        let result = a.freeze();
+        let array = UInt8Array::from(result);
+        assert_eq!(array.data().null_buffer().unwrap().len(), 2);
+        let expected = UInt8Array::from(vec![Some(1), Some(2), Some(3), None, None, None, None, None, None, Some(1), Some(2), Some(3)]);
+        assert_eq!(array, expected);
+
+    }
+
 
     #[test]
     fn test_list_null_offset() -> Result<()> {
