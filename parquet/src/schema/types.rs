@@ -593,7 +593,7 @@ impl<'a> GroupTypeBuilder<'a> {
 
 /// Basic type info. This contains information such as the name of the type,
 /// the repetition level, the logical type and the kind of the type (group, primitive).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BasicTypeInfo {
     name: String,
     repetition: Option<Repetition>,
@@ -2052,7 +2052,7 @@ mod tests {
         let mut thrift_schema = to_thrift(&expected_schema).unwrap();
         // Change all of None to Some(0)
         for mut elem in &mut thrift_schema[..] {
-            if elem.num_children == None {
+            if elem.num_children.is_none() {
                 elem.num_children = Some(0);
             }
         }

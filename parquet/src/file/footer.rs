@@ -79,10 +79,10 @@ pub fn parse_metadata<R: ChunkReader>(chunk_reader: &R) -> Result<ParquetMetaDat
     // build up the reader covering the entire metadata
     let mut default_end_cursor = Cursor::new(default_len_end_buf);
     if footer_metadata_len > file_size as usize {
-        return Err(general_err!(
+        Err(general_err!(
             "Invalid Parquet file. Metadata start is less than zero ({})",
             file_size as i64 - footer_metadata_len as i64
-        ));
+        ))
     } else if footer_metadata_len < DEFAULT_FOOTER_READ_SIZE {
         // the whole metadata is in the bytes we already read
         default_end_cursor.seek(SeekFrom::End(-(footer_metadata_len as i64)))?;

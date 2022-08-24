@@ -41,7 +41,7 @@ pub use parquet_format::{
 /// control the on disk storage format.
 /// For example INT16 is not included as a type since a good encoding of INT32
 /// would handle this.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     BOOLEAN,
     INT32,
@@ -62,7 +62,7 @@ pub enum Type {
 ///
 /// This struct was renamed from `LogicalType` in version 4.0.0.
 /// If targeting Parquet format 2.4.0 or above, please use [LogicalType] instead.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConvertedType {
     NONE,
     /// A BYTE_ARRAY actually contains UTF8 encoded chars.
@@ -163,7 +163,7 @@ pub enum ConvertedType {
 /// This is an *entirely new* struct as of version
 /// 4.0.0. The struct previously named `LogicalType` was renamed to
 /// [`ConvertedType`]. Please see the README.md for more details.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LogicalType {
     String,
     Map,
@@ -196,7 +196,7 @@ pub enum LogicalType {
 // Mirrors `parquet::FieldRepetitionType`
 
 /// Representation of field types in schema.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Repetition {
     /// Field is required (can not be null) and each record has exactly 1 value.
     REQUIRED,
@@ -277,7 +277,7 @@ pub enum Encoding {
 // Mirrors `parquet::CompressionCodec`
 
 /// Supported compression algorithms.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Compression {
     UNCOMPRESSED,
     SNAPPY,
@@ -293,7 +293,7 @@ pub enum Compression {
 
 /// Available data pages for Parquet file format.
 /// Note that some of the page types may not be supported.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageType {
     DATA_PAGE,
     INDEX_PAGE,
@@ -312,7 +312,7 @@ pub enum PageType {
 ///
 /// See reference in
 /// <https://github.com/apache/parquet-cpp/blob/master/src/parquet/types.h>
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortOrder {
     /// Signed (either value or legacy byte-wise) comparison.
     SIGNED,
@@ -327,7 +327,7 @@ pub enum SortOrder {
 ///
 /// If column order is undefined, then it is the legacy behaviour and all values should
 /// be compared as signed values/bytes.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColumnOrder {
     /// Column uses the order defined by its logical or physical type
     /// (if there is no logical type), parquet-format 2.4.0+.
