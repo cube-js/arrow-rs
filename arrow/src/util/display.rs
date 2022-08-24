@@ -240,7 +240,7 @@ macro_rules! make_string_from_large_list {
             .as_any()
             .downcast_ref::<array::LargeListArray>()
             .ok_or(ArrowError::InvalidArgumentError(format!(
-                "Repl error: could not convert list column to list array."
+                "Repl error: could not convert large list column to list array."
             )))?
             .value($row);
         let string_values = (0..list.len())

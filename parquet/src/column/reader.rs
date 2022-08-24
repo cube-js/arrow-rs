@@ -235,7 +235,7 @@ where
                         .def_level_decoder
                         .as_mut()
                         .expect("def_level_decoder be set")
-                        .read(*levels, levels_read..levels_read + iter_batch_size)?;
+                        .read(levels, levels_read..levels_read + iter_batch_size)?;
 
                     let null_count = levels.count_nulls(
                         levels_read..levels_read + num_def_levels,
