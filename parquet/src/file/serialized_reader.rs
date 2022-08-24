@@ -127,11 +127,13 @@ pub struct SerializedFileReader<R: ChunkReader> {
     metadata: ParquetMetaData,
 }
 
+type Predicate = Box<dyn FnMut(&RowGroupMetaData, usize) -> bool>;
+
 /// A builder for [`ReadOptions`].
 /// For the predicates that are added to the builder,
 /// they will be chained using 'AND' to filter the row groups.
 pub struct ReadOptionsBuilder {
-    predicates: Vec<Box<dyn FnMut(&RowGroupMetaData, usize) -> bool>>,
+    predicates: Vec<Predicate>,
 }
 
 impl ReadOptionsBuilder {
@@ -142,10 +144,7 @@ impl ReadOptionsBuilder {
 
     /// Add a predicate on row group metadata to the reading option,
     /// Filter only row groups that match the predicate criteria
-    pub fn with_predicate(
-        mut self,
-        predicate: Box<dyn FnMut(&RowGroupMetaData, usize) -> bool>,
-    ) -> Self {
+    pub fn with_predicate(mut self, predicate: Predicate) -> Self {
         self.predicates.push(predicate);
         self
     }
@@ -175,7 +174,7 @@ impl ReadOptionsBuilder {
 /// Currently, only predicates on row group metadata are supported.
 /// All predicates will be chained using 'AND' to filter the row groups.
 pub struct ReadOptions {
-    predicates: Vec<Box<dyn FnMut(&RowGroupMetaData, usize) -> bool>>,
+    predicates: Vec<Predicate>,
 }
 
 impl<R: 'static + ChunkReader> SerializedFileReader<R> {
