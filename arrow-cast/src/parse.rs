@@ -807,6 +807,24 @@ fn parse_date_to_days(string: &str) -> Option<i32> {
     parse_date(string).map(|naive_date| naive_date.num_days_from_ce() - EPOCH_DAYS_FROM_CE)
 }
 
+/// Parse a date delimited by `/`, `|` or `\`, such as `2000/04/04` or `2000|4|4`
+///
+/// The delimiter is the first of `|`, `/`, `\` or `-` in the string, and both
+/// separators must use it. Returns `None` when that delimiter is `-` or there is
+/// none, as those forms are handled by [`parse_date`].
+fn parse_date_alt_delimiter(string: &str) -> Option<NaiveDate> {
+    let delimiter = string
+        .bytes()
+        .find(|b| matches!(b, b'|' | b'/' | b'\\' | b'-'))?;
+    let format = match delimiter {
+        b'/' => "%Y/%m/%d",
+        b'|' => "%Y|%m|%d",
+        b'\\' => "%Y\\%m\\%d",
+        _ => return None,
+    };
+    NaiveDate::parse_from_str(string, format).ok()
+}
+
 impl Parser for Date32Type {
     fn parse(string: &str) -> Option<i32> {
         if let Some(days) = parse_date_to_days(string) {
@@ -814,7 +832,12 @@ impl Parser for Date32Type {
         }
 
         let trimmed = trim_pre_and_post_whitespace(string);
-        parse_date_to_days(trimmed)
+        if let Some(days) = parse_date_to_days(trimmed) {
+            return Some(days);
+        }
+
+        let date = parse_date_alt_delimiter(trimmed)?;
+        Some(date.num_days_from_ce() - EPOCH_DAYS_FROM_CE)
     }
 
     fn parse_formatted(string: &str, format: &str) -> Option<i32> {
@@ -2088,6 +2111,22 @@ mod tests {
             assert_eq!(v.date(), expected);
         }
 
+        // Compact dates and dates delimited by `/`, `|` or `\`
+        let delimiter_cases = [
+            ("20200908", (2020, 9, 8)),
+            ("2020/09/08", (2020, 9, 8)),
+            ("2020/9/8", (2020, 9, 8)),
+            ("2020|09|08", (2020, 9, 8)),
+            ("2020\\09\\08", (2020, 9, 8)),
+            (" 2020/09/08 ", (2020, 9, 8)),
+            ("1690/2/5", (1690, 2, 5)),
+        ];
+        for (case, (year, month, day)) in delimiter_cases {
+            let v = date32_to_datetime(Date32Type::parse(case).unwrap()).unwrap();
+            let expected = NaiveDate::from_ymd_opt(year, month, day).unwrap();
+            assert_eq!(v.date(), expected, "input: {case}");
+        }
+
         let err_cases = [
             "",
             "80-01-01",
@@ -2101,6 +2140,13 @@ mod tests {
             "2020-09-08 01-02-03",
             "2020-9-8 01:02:03",
             "2020-09-08 1:2:3",
+            "2020/09-08",
+            "2020-09/08",
+            "2020|09/08",
+            "2020/09/08/03",
+            "2020/13/08",
+            "2020/02/30",
+            "2020/",
         ];
         for case in err_cases {
             assert_eq!(Date32Type::parse(case), None);

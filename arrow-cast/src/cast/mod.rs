@@ -8367,6 +8367,10 @@ mod tests {
             "2000-2-2",            // valid date without leading 0s
             "2000-00-00",          // invalid month and day
             "2000",                // just a year is invalid
+            "20000303",            // valid date without delimiter
+            "2000/04/04",          // valid date with '/' delimiter
+            "2000|05|05",          // valid date with '|' delimiter
+            "2000\\06\\06",        // valid date with '\' delimiter
         ]);
         let array = Arc::new(a) as ArrayRef;
         let b = cast(&array, &DataType::Date32).unwrap();
@@ -8391,6 +8395,17 @@ mod tests {
         .num_days() as i32;
         assert!(c.is_valid(2)); // "2000-2-2"
         assert_eq!(date_value, c.value(2));
+
+        // "20000303", "2000/04/04", "2000|05|05" and "2000\\06\\06"
+        for (i, month_day) in [(5, 3), (6, 4), (7, 5), (8, 6)] {
+            let date_value = since(
+                NaiveDate::from_ymd_opt(2000, month_day, month_day).unwrap(),
+                from_ymd(1970, 1, 1).unwrap(),
+            )
+            .num_days() as i32;
+            assert!(c.is_valid(i));
+            assert_eq!(date_value, c.value(i));
+        }
 
         // test invalid inputs
         assert!(!c.is_valid(3)); // "2000-00-00"
