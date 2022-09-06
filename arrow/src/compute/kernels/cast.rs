@@ -1657,6 +1657,28 @@ where
     }
 }
 
+fn parse_naive_date(
+    v: &str,
+) -> core::result::Result<chrono::NaiveDate, chrono::ParseError> {
+    let mut delimiter = None;
+
+    for char in v.chars() {
+        match char {
+            '|' | '/' | '\\' | '-' => {
+                delimiter = Some(char);
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(d) = delimiter {
+        chrono::NaiveDate::parse_from_str(v, &format!("%Y{}%m{}%d", d, d))
+    } else {
+        chrono::NaiveDate::parse_from_str(v, "%Y%m%d")
+    }
+}
+
 /// Casts generic string arrays to Date32Array
 fn cast_string_to_date32<Offset: StringOffsetSizeTrait>(
     array: &dyn Array,
@@ -1673,9 +1695,7 @@ fn cast_string_to_date32<Offset: StringOffsetSizeTrait>(
             if string_array.is_null(i) {
                 None
             } else {
-                string_array
-                    .value(i)
-                    .parse::<chrono::NaiveDate>()
+                parse_naive_date(string_array.value(i))
                     .map(|date| date.num_days_from_ce() - EPOCH_DAYS_FROM_CE)
                     .ok()
             }
@@ -1692,11 +1712,9 @@ fn cast_string_to_date32<Offset: StringOffsetSizeTrait>(
                 if string_array.is_null(i) {
                     Ok(None)
                 } else {
-                    let string = string_array
-                        .value(i);
+                    let string = string_array.value(i);
 
-                    let result = string
-                        .parse::<chrono::NaiveDate>()
+                    let result = parse_naive_date(string)
                         .map(|date| date.num_days_from_ce() - EPOCH_DAYS_FROM_CE);
 
                     Some(result.map_err(|_| {
@@ -4957,6 +4975,8 @@ mod tests {
         let a = StringArray::from(vec![
             "2000-01-01",          // valid date with leading 0s
             "2000-2-2",            // valid date without leading 0s
+            "20000303",            // valid date delimiter
+            "2000/04/04",          // valid date delimiter
             "2000-00-00",          // invalid month and day
             "2000-01-01T12:00:00", // date + time is invalid
             "2000",                // just a year is invalid
@@ -4976,10 +4996,20 @@ mod tests {
         assert!(c.is_valid(1)); // "2000-2-2"
         assert_eq!(date_value, c.value(1));
 
+        let date_value = since(NaiveDate::from_ymd(2000, 3, 3), from_ymd(1970, 1, 1))
+            .num_days() as i32;
+        assert!(c.is_valid(2)); // "20000303"
+        assert_eq!(date_value, c.value(2));
+
+        let date_value = since(NaiveDate::from_ymd(2000, 4, 4), from_ymd(1970, 1, 1))
+            .num_days() as i32;
+        assert!(c.is_valid(3)); // "2000/04/04"
+        assert_eq!(date_value, c.value(3));
+
         // test invalid inputs
-        assert!(!c.is_valid(2)); // "2000-00-00"
-        assert!(!c.is_valid(3)); // "2000-01-01T12:00:00"
-        assert!(!c.is_valid(4)); // "2000"
+        assert!(!c.is_valid(4)); // "2000-00-00"
+        assert!(!c.is_valid(5)); // "2000-01-01T12:00:00"
+        assert!(!c.is_valid(6)); // "2000"
     }
 
     #[test]
