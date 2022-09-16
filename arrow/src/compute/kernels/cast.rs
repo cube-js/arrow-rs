@@ -145,6 +145,7 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
             Null,
         ) => true,
         (Decimal(_, _), _) => false,
+        (Utf8 | LargeUtf8, Decimal(_, _)) => true,
         (_, Decimal(_, _)) => false,
         (Struct(_), _) => false,
         (_, Struct(_)) => false,
@@ -380,6 +381,41 @@ macro_rules! cast_decimal_to_integer {
     }};
 }
 
+// cast the string array to defined decimal data type array
+macro_rules! cast_string_to_decimal {
+    ($ARRAY: expr, $ARRAY_TYPE: ident, $PRECISION : ident, $SCALE : ident) => {{
+        let mul = 10_f64.powi(*$SCALE as i32);
+        let string_array = $ARRAY
+            .as_any()
+            .downcast_ref::<$ARRAY_TYPE>()
+            .unwrap()
+            .iter()
+            .map(|val| match val {
+                Some(val) => {
+                    // TODO: f64 is smaller than decimal
+                    let val: lexical_core::Result<f64> =
+                        lexical_core::parse(val.as_bytes());
+                    match val {
+                        Ok(val) => Ok(Some((val * mul) as i128)),
+                        Err(lexical_core::Error::EmptyMantissa(_)) => Ok(None),
+                        _ => Err(ArrowError::CastError(format!(
+                            "Cannot cast from string to decimal"
+                        ))),
+                    }
+                }
+                None => Ok(None),
+            })
+            .collect::<Result<DecimalArray>>();
+
+        match string_array {
+            Ok(string_array) => Ok(Arc::new(
+                string_array.with_precision_and_scale(*$PRECISION, *$SCALE)?,
+            )),
+            Err(err) => Err(err),
+        }
+    }};
+}
+
 // cast the List array to Utf8 array
 macro_rules! cast_list_to_string {
     ($ARRAY:expr, $SIZE:ident) => {{
@@ -499,6 +535,12 @@ pub fn cast_with_options(
                 }
                 Float64 => {
                     cast_floating_point_to_decimal!(array, Float64Array, precision, scale)
+                }
+                LargeUtf8 => {
+                    cast_string_to_decimal!(array, LargeStringArray, precision, scale)
+                }
+                Utf8 => {
+                    cast_string_to_decimal!(array, StringArray, precision, scale)
                 }
                 Null => Ok(new_null_array(to_type, array.len())),
                 _ => Err(ArrowError::CastError(format!(
@@ -4955,5 +4997,32 @@ mod tests {
             .flatten()
             .collect::<Vec<_>>();
         assert_eq!(&out, &vec!["[0, 1, 2]", "[3, 4, 5]", "[6, 7]"]);
+    }
+
+    #[test]
+    fn test_string_to_decimal() {
+        let array = Arc::new(StringArray::from(vec![
+            Some("10.1"),
+            Some("NULL"),
+            None,
+            Some("10"),
+        ])) as ArrayRef;
+        let out = cast(&array, &DataType::Decimal(38, 10)).unwrap();
+        let out = out.as_any().downcast_ref::<DecimalArray>().unwrap();
+        assert_eq!(out.len(), 4);
+        let out = out.into_iter().flatten().collect::<Vec<_>>();
+        assert_eq!(&out, &vec![101000000000, 100000000000]);
+
+        let array = Arc::new(LargeStringArray::from(vec![
+            Some("10.1"),
+            Some("NULL"),
+            None,
+            Some("10"),
+        ])) as ArrayRef;
+        let out = cast(&array, &DataType::Decimal(38, 0)).unwrap();
+        let out = out.as_any().downcast_ref::<DecimalArray>().unwrap();
+        assert_eq!(out.len(), 4);
+        let out = out.into_iter().flatten().collect::<Vec<_>>();
+        assert_eq!(&out, &vec![10, 10]);
     }
 }
