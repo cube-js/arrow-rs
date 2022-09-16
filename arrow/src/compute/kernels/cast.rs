@@ -362,6 +362,7 @@ macro_rules! cast_string_to_decimal {
             .iter()
             .map(|val| match val {
                 Some(val) => {
+                    // TODO: f64 is smaller than decimal
                     let val: lexical_core::Result<f64> =
                         lexical_core::parse(val.as_bytes());
                     match val {
