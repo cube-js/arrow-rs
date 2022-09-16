@@ -355,25 +355,33 @@ macro_rules! cast_decimal_to_integer {
 macro_rules! cast_string_to_decimal {
     ($ARRAY: expr, $ARRAY_TYPE: ident, $PRECISION : ident, $SCALE : ident) => {{
         let mul = 10_f64.powi(*$SCALE as i32);
-        let decimal_array = $ARRAY
+        let string_array = $ARRAY
             .as_any()
             .downcast_ref::<$ARRAY_TYPE>()
             .unwrap()
             .iter()
             .map(|val| match val {
                 Some(val) => {
-                    let val: Option<f64> = lexical_core::parse(val.as_bytes()).ok();
+                    let val: lexical_core::Result<f64> =
+                        lexical_core::parse(val.as_bytes());
                     match val {
-                        Some(val) => Some((val * mul) as i128),
-                        None => None,
+                        Ok(val) => Ok(Some((val * mul) as i128)),
+                        Err(lexical_core::Error::EmptyMantissa(_)) => Ok(None),
+                        _ => Err(ArrowError::CastError(format!(
+                            "Cannot cast from string to decimal"
+                        ))),
                     }
                 }
-                None => None,
+                None => Ok(None),
             })
-            .collect::<DecimalArray>()
-            .with_precision_and_scale(*$PRECISION, *$SCALE)?;
+            .collect::<Result<DecimalArray>>();
 
-        Ok(Arc::new(decimal_array))
+        match string_array {
+            Ok(string_array) => Ok(Arc::new(
+                string_array.with_precision_and_scale(*$PRECISION, *$SCALE)?,
+            )),
+            Err(err) => Err(err),
+        }
     }};
 }
 
