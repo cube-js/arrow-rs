@@ -75,9 +75,9 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
         // cast one decimal type to another decimal type
         (Decimal(_, _), Decimal(_, _)) => true,
         // signed numeric to decimal
-        (Int8 | Int16 | Int32 | Int64 | Float32 | Float64, Decimal(_, _)) |
+        (Int8 | Int16 | Int32 | Int64 | UInt32 | UInt64 | Float32 | Float64, Decimal(_, _)) |
         // decimal to signed numeric
-        (Decimal(_, _), Int8 | Int16 | Int32 | Int64 | Float32 | Float64)
+        (Decimal(_, _), Int8 | Int16 | Int32 | Int64 | UInt32 | UInt64 | Float32 | Float64)
         | (
             Null,
             Boolean
@@ -471,6 +471,12 @@ pub fn cast_with_options(
                 Int64 => {
                     cast_decimal_to_integer!(array, scale, Int64Builder, i64, Int64)
                 }
+                UInt32 => {
+                    cast_decimal_to_integer!(array, scale, UInt32Builder, u32, UInt32)
+                }
+                UInt64 => {
+                    cast_decimal_to_integer!(array, scale, UInt64Builder, u64, UInt64)
+                }
                 Float32 => {
                     cast_decimal_to_float!(array, scale, Float32Builder, f32)
                 }
@@ -498,6 +504,12 @@ pub fn cast_with_options(
                 }
                 Int64 => {
                     cast_integer_to_decimal!(array, Int64Array, precision, scale)
+                }
+                UInt32 => {
+                    cast_integer_to_decimal!(array, UInt32Array, precision, scale)
+                }
+                UInt64 => {
+                    cast_integer_to_decimal!(array, UInt64Array, precision, scale)
                 }
                 Float32 => {
                     cast_floating_point_to_decimal!(array, Float32Array, precision, scale)
@@ -2373,11 +2385,9 @@ mod tests {
 
     #[test]
     fn test_cast_numeric_to_decimal() {
-        // test negative cast type
         let decimal_type = DataType::Decimal(38, 6);
-        assert!(!can_cast_types(&DataType::UInt64, &decimal_type));
 
-        // i8, i16, i32, i64
+        // i8, i16, i32, i64, u64
         let input_datas = vec![
             Arc::new(Int8Array::from(vec![
                 Some(1),
@@ -2407,6 +2417,13 @@ mod tests {
                 None,
                 Some(5),
             ])) as ArrayRef, // i64
+            Arc::new(UInt64Array::from(vec![
+                Some(1),
+                Some(2),
+                Some(3),
+                None,
+                Some(5),
+            ])) as ArrayRef, // u64
         ];
         for array in input_datas {
             generate_cast_test_case!(
