@@ -16,6 +16,7 @@ conbench/requirements.txt
 conbench/requirements-test.txt
 conbench/.flake8
 conbench/.isort.cfg
+rust-toolchain
 # auto-generated
 arrow-flight/src/arrow.flight.protocol.rs
 arrow-flight/src/sql/arrow.flight.protocol.sql.rs
