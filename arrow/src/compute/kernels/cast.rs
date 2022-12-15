@@ -257,6 +257,7 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
         (Timestamp(_, _), Int64) => true,
         (Int64, Timestamp(_, _)) => true,
         (Timestamp(_, _), Timestamp(_, _) | Date32 | Date64) => true,
+        (Date32, Timestamp(_, _)) => true,
         // date64 to timestamp might not make sense,
         (Int64, Duration(_)) => true,
         (Duration(_), Int64) => true,
@@ -1216,6 +1217,32 @@ pub fn cast_with_options(
             }
 
             Ok(Arc::new(b.finish()) as ArrayRef)
+        }
+        (Date32, Timestamp(to_unit, _)) => {
+            let time_array = Int32Array::from(array.data().clone());
+            let time_array = numeric_cast::<Int32Type, Int64Type>(&time_array);
+            let to_size = time_unit_multiple(to_unit) * SECONDS_IN_DAY;
+            let converted =
+                multiply(&time_array, &Int64Array::from(vec![to_size; array.len()]))?;
+            let array_ref = Arc::new(converted) as ArrayRef;
+            use TimeUnit::*;
+            match to_unit {
+                Second => {
+                    cast_array_data::<TimestampSecondType>(&array_ref, to_type.clone())
+                }
+                Millisecond => cast_array_data::<TimestampMillisecondType>(
+                    &array_ref,
+                    to_type.clone(),
+                ),
+                Microsecond => cast_array_data::<TimestampMicrosecondType>(
+                    &array_ref,
+                    to_type.clone(),
+                ),
+                Nanosecond => cast_array_data::<TimestampNanosecondType>(
+                    &array_ref,
+                    to_type.clone(),
+                ),
+            }
         }
         (Timestamp(from_unit, _), Date64) => {
             let from_size = time_unit_multiple(from_unit);
@@ -3010,6 +3037,19 @@ mod tests {
         assert_eq!(10000, c.value(0));
         assert_eq!(17890, c.value(1));
         assert!(c.is_null(2));
+    }
+
+    #[test]
+    fn test_cast_date32_to_timestamp() {
+        let a = Date32Array::from(vec![10000, 17890]);
+        let array = Arc::new(a) as ArrayRef;
+        let b = cast(&array, &DataType::Timestamp(TimeUnit::Nanosecond, None)).unwrap();
+        let c = b
+            .as_any()
+            .downcast_ref::<TimestampNanosecondArray>()
+            .unwrap();
+        assert_eq!(864000000000000000, c.value(0));
+        assert_eq!(1545696000000000000, c.value(1));
     }
 
     #[test]
