@@ -62,7 +62,7 @@ macro_rules! make_string_interval_year_month {
             let month = interval - (years * 12_f64);
 
             format!(
-                "{} years {} mons 0 days 0 hours 0 mins 0.00 secs",
+                "{} years {} mons 0 days 0 hours 0 mins 0.000 secs",
                 years, month,
             )
         };
@@ -94,7 +94,7 @@ macro_rules! make_string_interval_day_time {
             let mins = mins - (hours * 60);
 
             format!(
-                "0 years 0 mons {} days {} hours {} mins {}.{:02} secs",
+                "0 years 0 mons {} days {} hours {} mins {}.{:03} secs",
                 days_parts,
                 hours,
                 mins,
@@ -132,7 +132,7 @@ macro_rules! make_string_interval_month_day_nano {
             let mins = mins - (hours * 60);
 
             format!(
-                "0 years {} mons {} days {} hours {} mins {}.{:02} secs",
+                "0 years {} mons {} days {} hours {} mins {}.{:09} secs",
                 months_part,
                 days_part,
                 hours,
