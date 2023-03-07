@@ -261,9 +261,9 @@ impl IntervalMonthDayNanoType {
         days: i32,
         nanos: i64,
     ) -> <IntervalMonthDayNanoType as ArrowPrimitiveType>::Native {
-        let m = months as u128 & u32::MAX as u128;
-        let d = (days as u128 & u32::MAX as u128) << 32;
-        let n = (nanos as u128) << 64;
+        let m = (months as u128 & u32::MAX as u128) << 96;
+        let d = (days as u128 & u32::MAX as u128) << 64;
+        let n = nanos as u128;
         (m | d | n) as <IntervalMonthDayNanoType as ArrowPrimitiveType>::Native
     }
 
