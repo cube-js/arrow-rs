@@ -1441,10 +1441,10 @@ impl FromStr for IntervalAmount {
                     && !frac.is_empty()
                     && !frac.starts_with('-') =>
             {
-                // integer will be "" for values like ".5"
-                // and "-" for values like "-.5"
+                // integer will be "" for values like ".5",
+                // "-" for values like "-.5" and "+" for values like "+.5"
                 let explicit_neg = integer.starts_with('-');
-                let integer = if integer.is_empty() || integer == "-" {
+                let integer = if integer.is_empty() || integer == "-" || integer == "+" {
                     Ok(0)
                 } else {
                     integer.parse::<i64>().map_err(|_| {
@@ -1553,8 +1553,9 @@ impl Interval {
 
     /// Interval addition following Postgres behavior. Fractional units will be spilled into smaller units.
     /// When the interval unit is larger than months, the result is rounded to total months and not spilled to days/nanos.
-    /// Fractional parts of weeks and days are represented using days and nanoseconds.
-    /// e.g. INTERVAL '0.5 MONTH' = 15 days, INTERVAL '1.5 MONTH' = 1 month 15 days
+    /// Fractional parts of months, weeks and days are spilled into whole days and then nanoseconds.
+    /// e.g. INTERVAL '0.5 MONTH' = 15 days, INTERVAL '1.75 MONTH' = 1 month 22 days 12 hours
+    /// e.g. INTERVAL '1.5 WEEK' = 10 days 12 hours
     /// e.g. INTERVAL '0.5 DAY' = 12 hours, INTERVAL '1.5 DAY' = 1 day 12 hours
     /// [Postgres reference](https://www.postgresql.org/docs/15/datatype-datetime.html#DATATYPE-INTERVAL-INPUT:~:text=Field%20values%20can,fractional%20on%20output.)
     fn add(&self, amount: IntervalAmount, unit: IntervalUnit) -> Result<Self, ArrowError> {
@@ -1613,7 +1614,7 @@ impl Interval {
                     ))
                 })?;
 
-                let days = amount.frac * 3 / 10_i64.pow(INTERVAL_PRECISION - 1);
+                let (days, nanos) = spill_fractional_days(amount.frac * 30);
                 let days = days.try_into().map_err(|_| {
                     ArrowError::ParseError(format!(
                         "Unable to represent {} months as days in a signed 32-bit integer",
@@ -1624,18 +1625,22 @@ impl Interval {
                 Self::new(
                     self.months.add_checked(months)?,
                     self.days.add_checked(days)?,
-                    self.nanos,
+                    self.nanos.add_checked(nanos)?,
                 )
             }
             IntervalUnit::Week => {
-                let days = amount.integer.mul_checked(7)?.try_into().map_err(|_| {
-                    ArrowError::ParseError(format!(
-                        "Unable to represent {} weeks as days in a signed 32-bit integer",
-                        amount.integer
-                    ))
-                })?;
-
-                let nanos = amount.frac * 7 * 24 * 6 * 6 / 10_i64.pow(INTERVAL_PRECISION - 11);
+                let (frac_days, nanos) = spill_fractional_days(amount.frac * 7);
+                let days = amount
+                    .integer
+                    .mul_checked(7)?
+                    .add_checked(frac_days)?
+                    .try_into()
+                    .map_err(|_| {
+                        ArrowError::ParseError(format!(
+                            "Unable to represent {} weeks as days in a signed 32-bit integer",
+                            amount.integer
+                        ))
+                    })?;
 
                 Self::new(
                     self.months,
@@ -1708,12 +1713,25 @@ impl Interval {
     }
 }
 
+/// Splits a number of days scaled by 10^INTERVAL_PRECISION into whole days and the
+/// nanoseconds of the remaining fraction of a day, both with the sign of the input
+fn spill_fractional_days(scaled_days: i64) -> (i64, i64) {
+    let scale = 10_i64.pow(INTERVAL_PRECISION);
+    let nanos = scaled_days % scale * 24 * 6 * 6 / 10_i64.pow(INTERVAL_PRECISION - 11);
+    (scaled_days / scale, nanos)
+}
+
 /// parse the string into a vector of interval components i.e. (amount, unit) tuples
 fn parse_interval_components(
     value: &str,
     config: &IntervalParseConfig,
 ) -> Result<Vec<(IntervalAmount, IntervalUnit)>, ArrowError> {
     let raw_pairs = split_interval_components(value);
+    if raw_pairs.is_empty() {
+        return Err(ArrowError::ParseError(format!(
+            "Invalid input syntax for type interval: {value:?}"
+        )));
+    }
 
     // parse amounts and units
     let Ok(pairs): Result<Vec<(IntervalAmount, IntervalUnit)>, ArrowError> = raw_pairs
@@ -1750,12 +1768,13 @@ fn parse_interval_components(
 
 /// Split an interval into a vec of amounts and units.
 ///
-/// Pairs are separated by spaces, but within a pair the amount and unit may or may not be separated by a space.
+/// Pairs are separated by whitespace, but within a pair the amount and unit may or may not be separated by
+/// whitespace. Leading, trailing and repeated whitespace is ignored.
 ///
 /// This should match the behavior of PostgreSQL's interval parser.
 fn split_interval_components(value: &str) -> Vec<(&str, Option<&str>)> {
     let mut result = vec![];
-    let mut words = value.split(char::is_whitespace);
+    let mut words = value.split_whitespace();
     while let Some(word) = words.next() {
         if let Some(split_word_at) = word.find(not_interval_amount) {
             let (amount, unit) = word.split_at(split_word_at);
@@ -1770,9 +1789,9 @@ fn split_interval_components(value: &str) -> Vec<(&str, Option<&str>)> {
     result
 }
 
-/// test if a character is NOT part of an interval numeric amount
+/// test if a character is NOT part of an interval numeric amount, which may have an explicit sign
 fn not_interval_amount(c: char) -> bool {
-    !c.is_ascii_digit() && c != '.' && c != '-'
+    !c.is_ascii_digit() && c != '.' && c != '-' && c != '+'
 }
 
 #[cfg(test)]
@@ -2654,6 +2673,53 @@ mod tests {
             Interval::parse("1XX", &config).unwrap_err().to_string(),
             r#"Parser error: Invalid input syntax for type interval: "1XX""#
         );
+    }
+
+    #[test]
+    fn test_parse_interval_postgres_compatibility() {
+        // (months, days, nanos) as PostgreSQL computes them
+        let cases = [
+            // Fractional months and weeks spill whole days, then nanoseconds
+            ("1.75 months", (1, 22, 12 * NANOS_PER_HOUR)),
+            ("-1.75 months", (-1, -22, -12 * NANOS_PER_HOUR)),
+            ("0.05 months", (0, 1, 12 * NANOS_PER_HOUR)),
+            ("1.5 weeks", (0, 10, 12 * NANOS_PER_HOUR)),
+            ("-1.5 weeks", (0, -10, -12 * NANOS_PER_HOUR)),
+            ("0.1 weeks", (0, 0, 7 * NANOS_PER_DAY / 10)),
+            // An explicit sign on an amount
+            ("+5 days", (0, 5, 0)),
+            ("+5days", (0, 5, 0)),
+            ("+.5 days", (0, 0, 12 * NANOS_PER_HOUR)),
+            ("-1 day +2 hours", (0, -1, 2 * NANOS_PER_HOUR)),
+            ("1 hour +30 minutes", (0, 0, 90 * NANOS_PER_MINUTE)),
+            // Leading, trailing and repeated whitespace
+            (" 1 day", (0, 1, 0)),
+            ("1 day ", (0, 1, 0)),
+            ("1 day  2 hours", (0, 1, 2 * NANOS_PER_HOUR)),
+            ("\t1 day \n 2 hours\t", (0, 1, 2 * NANOS_PER_HOUR)),
+        ];
+        for (s, expected) in cases {
+            assert_eq!(
+                IntervalMonthDayNanoType::to_parts(parse_interval_month_day_nano(s).unwrap()),
+                expected,
+                "{s}"
+            );
+        }
+
+        // An interval of days and milliseconds gets the same spilled days
+        assert_eq!(
+            parse_interval_day_time("1.5 weeks").unwrap(),
+            IntervalDayTimeType::make_value(10, 12 * 60 * 60 * 1000)
+        );
+        assert_eq!(
+            parse_interval_day_time("0.05 months").unwrap(),
+            IntervalDayTimeType::make_value(1, 12 * 60 * 60 * 1000)
+        );
+
+        // An empty interval, or a sign without an amount, is still invalid
+        for s in ["", " ", "+", "1 day +", "+ 1 day", "++1 day", "+-1 day"] {
+            assert!(parse_interval_month_day_nano(s).is_err(), "{s:?}");
+        }
     }
 
     #[test]
