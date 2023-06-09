@@ -96,6 +96,7 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
             | Int64
             | UInt64
             | Float64
+            | Decimal(_, _)
             | Date64
             | Timestamp(_, _)
             | Time64(_)
@@ -127,6 +128,7 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
             | Int64
             | UInt64
             | Float64
+            | Decimal(_, _)
             | Date64
             | Timestamp(_, _)
             | Time64(_)
@@ -509,6 +511,7 @@ pub fn cast_with_options(
                 Float64 => {
                     cast_decimal_to_float!(array, scale, Float64Builder, f64)
                 }
+                Null => Ok(new_null_array(to_type, array.len())),
                 _ => Err(ArrowError::CastError(format!(
                     "Casting from {:?} to {:?} not supported",
                     from_type, to_type
@@ -543,6 +546,7 @@ pub fn cast_with_options(
                 Utf8 => {
                     cast_string_to_decimal!(array, StringArray, precision, scale)
                 }
+                Null => Ok(new_null_array(to_type, array.len())),
                 _ => Err(ArrowError::CastError(format!(
                     "Casting from {:?} to {:?} not supported",
                     from_type, to_type
