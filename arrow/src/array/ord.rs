@@ -230,6 +230,7 @@ pub fn build_compare(left: &dyn Array, right: &dyn Array) -> Result<DynComparato
             let right: DecimalArray = DecimalArray::from(right.data().clone());
             Box::new(move |i, j| left.value(i).cmp(&right.value(j)))
         }
+        (Null, Null) => Box::new(|_, _| Ordering::Equal),
         (lhs, _) => {
             return Err(ArrowError::InvalidArgumentError(format!(
                 "The data type type {:?} has no natural order",
