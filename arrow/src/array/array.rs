@@ -555,7 +555,18 @@ pub fn new_null_array(data_type: &DataType, length: usize) -> ArrayRef {
             })
         }
         DataType::Decimal(_, _) => {
-            unimplemented!("Creating null Decimal array not yet supported")
+            let null_buf: Buffer = MutableBuffer::new_null(length).into();
+            make_array(unsafe {
+                ArrayData::new_unchecked(
+                    data_type.clone(),
+                    length,
+                    Some(length),
+                    Some(null_buf.clone()),
+                    0,
+                    vec![null_buf],
+                    vec![],
+                )
+            })
         }
     }
 }
