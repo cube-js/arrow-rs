@@ -350,9 +350,24 @@ fn arrow_to_parquet_type(field: &Field) -> Result<Type> {
         DataType::Int64 => Type::primitive_type_builder(name, PhysicalType::INT64)
             .with_repetition(repetition)
             .build(),
+        DataType::Int96 => Type::primitive_type_builder(name, PhysicalType::INT96)
+            .with_repetition(repetition)
+            .build(),
         DataType::Int64Decimal(scale) => {
             let precision = 18;
             Type::primitive_type_builder(name, PhysicalType::INT64)
+                .with_logical_type(Some(LogicalType::DECIMAL(DecimalType::new(
+                    *scale as i32,
+                    precision,
+                ))))
+                .with_scale(*scale as i32)
+                .with_precision(precision)
+                .with_repetition(repetition)
+                .build()
+        }
+        DataType::Int96Decimal(scale) => {
+            let precision = 27;
+            Type::primitive_type_builder(name, PhysicalType::INT96)
                 .with_logical_type(Some(LogicalType::DECIMAL(DecimalType::new(
                     *scale as i32,
                     precision,
@@ -637,7 +652,7 @@ impl ParquetTypeConverter<'_> {
             PhysicalType::BOOLEAN => Ok(DataType::Boolean),
             PhysicalType::INT32 => self.from_int32(),
             PhysicalType::INT64 => self.from_int64(),
-            PhysicalType::INT96 => Ok(DataType::Timestamp(TimeUnit::Nanosecond, None)),
+            PhysicalType::INT96 => self.from_int96(),
             PhysicalType::FLOAT => Ok(DataType::Float32),
             PhysicalType::DOUBLE => Ok(DataType::Float64),
             PhysicalType::BYTE_ARRAY => self.from_byte_array(),
@@ -685,6 +700,36 @@ impl ParquetTypeConverter<'_> {
             (None, ConvertedType::DECIMAL) => Ok(self.to_decimal()),
             (logical, converted) => Err(ArrowError(format!(
                 "Unable to convert parquet INT32 logical type {:?} or converted type {}",
+                logical, converted
+            ))),
+        }
+    }
+
+    fn from_int96(&self) -> Result<DataType> {
+        match (
+            self.schema.get_basic_info().logical_type(),
+            self.schema.get_basic_info().converted_type(),
+        ) {
+            (None, ConvertedType::NONE) => Ok(DataType::Int96),
+            (Some(LogicalType::INTEGER(t)), _) if t.bit_width == 96 => {
+                Ok(DataType::Int96)
+            }
+            (Some(LogicalType::DECIMAL(_)), _) | (None, ConvertedType::DECIMAL) => {
+                match self.schema {
+                    Type::PrimitiveType { scale, .. } => {
+                        Ok(DataType::Int96Decimal(*scale as usize))
+                    }
+                    _ => Err(ArrowError(format!(
+                        "Scale is missing for {:?}",
+                        self.schema
+                    ))),
+                }
+            }
+            (Some(LogicalType::TIMESTAMP(_)), _) => {
+                Ok(DataType::Timestamp(TimeUnit::Nanosecond, None))
+            }
+            (logical, converted) => Err(ArrowError(format!(
+                "Unable to convert parquet INT96 logical type {:?} or converted type {}",
                 logical, converted
             ))),
         }

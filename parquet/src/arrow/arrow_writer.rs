@@ -36,7 +36,7 @@ use crate::{
     data_type::*,
     file::writer::{FileWriter, ParquetWriter, RowGroupWriter, SerializedFileWriter},
 };
-use arrow::array::Int64Array;
+use arrow::array::{Int64Array, Int96Array};
 
 /// Arrow writer
 ///
@@ -155,7 +155,9 @@ fn write_leaves(
         | ArrowDataType::Int16
         | ArrowDataType::Int32
         | ArrowDataType::Int64
+        | ArrowDataType::Int96
         | ArrowDataType::Int64Decimal(_)
+        | ArrowDataType::Int96Decimal(_)
         | ArrowDataType::UInt8
         | ArrowDataType::UInt16
         | ArrowDataType::UInt32
@@ -335,8 +337,28 @@ fn write_leaf(
                 levels.repetition.as_deref(),
             )?
         }
-        ColumnWriter::Int96ColumnWriter(ref mut _typed) => {
-            unreachable!("Currently unreachable because data type not supported")
+        ColumnWriter::Int96ColumnWriter(ref mut typed) => {
+            let values = match column.data_type() {
+                ArrowDataType::Int96 => {
+                    let array = column
+                        .as_any()
+                        .downcast_ref::<arrow_array::Int96Array>()
+                        .expect("Unable to get i128 array");
+                    get_numeric_array_slice::<Int96Type, _>(&array, &indices)
+                }
+                ArrowDataType::Int96Decimal(_) => {
+                    let array = Int96Array::from(column.data().clone());
+                    get_numeric_array_slice::<Int96Type, _>(&array, &indices)
+                }
+                _ => {
+                    unreachable!("Currently unreachable because data type not supported")
+                }
+            };
+            typed.write_batch(
+                values.as_slice(),
+                Some(levels.definition.as_slice()),
+                levels.repetition.as_deref(),
+            )?
         }
         ColumnWriter::FloatColumnWriter(ref mut typed) => {
             let array = column
@@ -489,6 +511,17 @@ where
     A: arrow::datatypes::ArrowNumericType,
     T::T: From<A::Native>,
 {
+    let mut values = Vec::with_capacity(indices.len());
+    for i in indices {
+        values.push(array.value(*i).into())
+    }
+    values
+}
+
+fn get_numeric_int96_array_slice(
+    array: &arrow_array::Int96Array,
+    indices: &[usize],
+) -> Vec<Int96> {
     let mut values = Vec::with_capacity(indices.len());
     for i in indices {
         values.push(array.value(*i).into())

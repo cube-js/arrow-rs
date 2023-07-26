@@ -303,7 +303,9 @@ fn create_primitive_array(
         }
         Boolean
         | Int64
+        | Int96
         | Int64Decimal(_)
+        | Int96Decimal(_)
         | UInt64
         | Float64
         | Time64(_)

@@ -61,6 +61,27 @@ impl Int96 {
         self.value = Some([elem0, elem1, elem2]);
     }
 
+    /// Set data for this INT96 type from i128 type. Only least 12 taken
+    #[inline]
+    pub fn set_data_from_i128(&mut self, value: i128) {
+        let elem0 = (value >> 64) & 0xffffffff;
+        let elem1 = (value >> 32) & 0xffffffff;
+        let elem2 = value & 0xffffffff;
+        self.set_data(elem0 as u32, elem1 as u32, elem2 as u32);
+    }
+
+    ///Convert data to i128
+    #[inline]
+    pub fn to_i128(&self) -> i128 {
+        let data = self.data();
+        let mut result =
+            ((data[0] as i128) << 64) + ((data[1] as i128) << 32) + data[2] as i128;
+        if (data[0] & 0x80000000) == 0x80000000 {
+            result += (0xffffffff_i128) << 96;
+        }
+        result
+    }
+
     /// Converts this INT96 into an i64 representing the number of MILLISECONDS since Epoch
     pub fn to_i64(&self) -> i64 {
         const JULIAN_DAY_OF_EPOCH: i64 = 2_440_588;
@@ -96,6 +117,13 @@ impl From<Vec<u32>> for Int96 {
         assert_eq!(buf.len(), 3);
         let mut result = Self::new();
         result.set_data(buf[0], buf[1], buf[2]);
+        result
+    }
+}
+impl From<i128> for Int96 {
+    fn from(value: i128) -> Self {
+        let mut result = Self::new();
+        result.set_data_from_i128(value);
         result
     }
 }
@@ -1303,6 +1331,21 @@ mod tests {
             Int96::from(vec![1, 12345, 1234567890]).data(),
             &[1, 12345, 1234567890]
         );
+    }
+
+    #[test]
+    fn test_int96_to_i128() {
+        let value = Int96::from(vec![1, 2, 3]);
+        assert_eq!(value.to_i128(), 18446744082299486211);
+    }
+    #[test]
+    fn test_int96_from_i128() {
+        let value = Int96::from(vec![1, 2, 3]);
+        let value2 = Int96::from(18446744082299486211);
+        assert_eq!(value.to_i128(), value2.to_i128());
+
+        let value = Int96::from(2118446744082299446211);
+        assert_eq!(value.to_i128(), 2118446744082299446211);
     }
 
     #[test]

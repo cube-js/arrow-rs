@@ -245,7 +245,9 @@ fn build_extend(array: &ArrayData) -> Extend {
         DataType::Int16 => primitive::build_extend::<i16>(array),
         DataType::Int32 => primitive::build_extend::<i32>(array),
         DataType::Int64 => primitive::build_extend::<i64>(array),
+        DataType::Int96 => primitive::build_extend::<i128>(array),
         DataType::Int64Decimal(_) => primitive::build_extend::<i64>(array),
+        DataType::Int96Decimal(_) => primitive::build_extend::<i128>(array),
         DataType::Float32 => primitive::build_extend::<f32>(array),
         DataType::Float64 => primitive::build_extend::<f64>(array),
         DataType::Date32
@@ -291,7 +293,9 @@ fn build_extend_nulls(data_type: &DataType) -> ExtendNulls {
         DataType::Int16 => primitive::extend_nulls::<i16>,
         DataType::Int32 => primitive::extend_nulls::<i32>,
         DataType::Int64 => primitive::extend_nulls::<i64>,
+        DataType::Int96 => primitive::extend_nulls::<i128>,
         DataType::Int64Decimal(_) => primitive::extend_nulls::<i64>,
+        DataType::Int96Decimal(_) => primitive::extend_nulls::<i128>,
         DataType::Float32 => primitive::extend_nulls::<f32>,
         DataType::Float64 => primitive::extend_nulls::<f64>,
         DataType::Date32
@@ -434,7 +438,9 @@ impl<'a> MutableArrayData<'a> {
             | DataType::Int16
             | DataType::Int32
             | DataType::Int64
+            | DataType::Int96
             | DataType::Int64Decimal(_)
+            | DataType::Int96Decimal(_)
             | DataType::Float32
             | DataType::Float64
             | DataType::Date32
@@ -616,7 +622,7 @@ impl<'a> MutableArrayData<'a> {
     pub fn extend_nulls(&mut self, len: usize) {
         self.data.null_count += len;
 
-        let null_bytes_count = bit_util::ceil(self.data.len  + len, 8);
+        let null_bytes_count = bit_util::ceil(self.data.len + len, 8);
         if null_bytes_count > self.data.null_buffer.len() {
             self.data.null_buffer.resize(null_bytes_count, 0x00);
         }
@@ -744,7 +750,17 @@ mod tests {
         let result = a.freeze();
         let array = UInt8Array::from(result);
         assert_eq!(array.data().null_buffer().unwrap().len(), 2);
-        let expected = UInt8Array::from(vec![Some(1), Some(2), Some(3), None, None, None, None, None, None]);
+        let expected = UInt8Array::from(vec![
+            Some(1),
+            Some(2),
+            Some(3),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ]);
         assert_eq!(array, expected);
 
         let b = UInt8Array::from(vec![Some(1), Some(2), Some(3)]);
@@ -759,11 +775,22 @@ mod tests {
         let result = a.freeze();
         let array = UInt8Array::from(result);
         assert_eq!(array.data().null_buffer().unwrap().len(), 2);
-        let expected = UInt8Array::from(vec![Some(1), Some(2), Some(3), None, None, None, None, None, None, Some(1), Some(2), Some(3)]);
+        let expected = UInt8Array::from(vec![
+            Some(1),
+            Some(2),
+            Some(3),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(1),
+            Some(2),
+            Some(3),
+        ]);
         assert_eq!(array, expected);
-
     }
-
 
     #[test]
     fn test_list_null_offset() -> Result<()> {

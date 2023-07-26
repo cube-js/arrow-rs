@@ -167,6 +167,7 @@ pub(crate) fn get_data_type(field: ipc::Field, may_be_dictionary: bool) -> DataT
                 (32, true) => DataType::Int32,
                 (32, false) => DataType::UInt32,
                 (64, true) => DataType::Int64,
+                (128, true) => DataType::Int96,
                 // TODO
                 (64, false) => DataType::UInt64,
                 _ => panic!("Unexpected bitwidth and signed"),
@@ -191,6 +192,7 @@ pub(crate) fn get_data_type(field: ipc::Field, may_be_dictionary: bool) -> DataT
                 (32, true) => DataType::Int32,
                 (32, false) => DataType::UInt32,
                 (64, true) => DataType::Int64,
+                (96, true) => DataType::Int96,
                 // TODO
                 (64, false) => DataType::UInt64,
                 z => panic!(
@@ -201,7 +203,11 @@ pub(crate) fn get_data_type(field: ipc::Field, may_be_dictionary: bool) -> DataT
         }
         ipc::Type::Decimal => {
             let decimal = field.type_as_decimal().unwrap();
-            DataType::Int64Decimal(decimal.scale() as usize)
+            match decimal.bitWidth() {
+                64 => DataType::Int64Decimal(decimal.scale() as usize),
+                96 => DataType::Int96Decimal(decimal.scale() as usize),
+                w => panic!("Decimal type with bit width of {} not supported", w),
+            }
         }
         ipc::Type::Binary => DataType::Binary,
         ipc::Type::LargeBinary => DataType::LargeBinary,
@@ -426,7 +432,7 @@ pub(crate) fn get_fb_field_type<'a>(
                 children: Some(children),
             }
         }
-        Int8 | Int16 | Int32 | Int64 => {
+        Int8 | Int16 | Int32 | Int64 | Int96 => {
             let children = fbb.create_vector(&empty_fields[..]);
             let mut builder = ipc::IntBuilder::new(fbb);
             builder.add_is_signed(true);
@@ -435,6 +441,7 @@ pub(crate) fn get_fb_field_type<'a>(
                 Int16 => builder.add_bitWidth(16),
                 Int32 => builder.add_bitWidth(32),
                 Int64 => builder.add_bitWidth(64),
+                Int96 => builder.add_bitWidth(96),
                 _ => {}
             };
             FBFieldType {
@@ -443,12 +450,16 @@ pub(crate) fn get_fb_field_type<'a>(
                 children: Some(children),
             }
         }
-        Int64Decimal(scale) => {
+        Int64Decimal(scale) | Int96Decimal(scale) => {
             let children = fbb.create_vector(&empty_fields[..]);
             let mut builder = ipc::DecimalBuilder::new(fbb);
             builder.add_scale(*scale as i32);
             builder.add_precision(18);
-            builder.add_bitWidth(64);
+            match data_type {
+                Int64Decimal(_) => builder.add_bitWidth(64),
+                Int96Decimal(_) => builder.add_bitWidth(96),
+                _ => {}
+            }
             FBFieldType {
                 type_type: ipc::Type::Decimal,
                 type_: builder.finish().as_union_value(),

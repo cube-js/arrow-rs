@@ -75,6 +75,10 @@ pub(crate) fn new_buffers(data_type: &DataType, capacity: usize) -> [MutableBuff
             MutableBuffer::new(capacity * mem::size_of::<u64>()),
             empty_buffer,
         ],
+        DataType::Int96Decimal(_) => [
+            MutableBuffer::new(capacity * mem::size_of::<u128>()),
+            empty_buffer,
+        ],
         DataType::Int8 => [
             MutableBuffer::new(capacity * mem::size_of::<i8>()),
             empty_buffer,
@@ -89,6 +93,10 @@ pub(crate) fn new_buffers(data_type: &DataType, capacity: usize) -> [MutableBuff
         ],
         DataType::Int64 => [
             MutableBuffer::new(capacity * mem::size_of::<i64>()),
+            empty_buffer,
+        ],
+        DataType::Int96 => [
+            MutableBuffer::new(capacity * mem::size_of::<i128>()),
             empty_buffer,
         ],
         DataType::Float32 => [
@@ -430,7 +438,9 @@ impl ArrayData {
             | DataType::Int16
             | DataType::Int32
             | DataType::Int64
+            | DataType::Int96
             | DataType::Int64Decimal(_)
+            | DataType::Int96Decimal(_)
             | DataType::Float32
             | DataType::Float64
             | DataType::Date32

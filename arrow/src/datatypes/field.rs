@@ -451,7 +451,9 @@ impl Field {
             | DataType::Int16
             | DataType::Int32
             | DataType::Int64
+            | DataType::Int96
             | DataType::Int64Decimal(_)
+            | DataType::Int96Decimal(_)
             | DataType::UInt8
             | DataType::UInt16
             | DataType::UInt32

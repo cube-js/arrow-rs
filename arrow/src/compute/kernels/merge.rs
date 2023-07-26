@@ -195,6 +195,9 @@ fn comparators_for<'a>(
             DataType::Int64 => {
                 Box::new(PrimitiveComparator::<Int64Type>::new(to_compare))
             }
+            DataType::Int96 => {
+                Box::new(PrimitiveComparator::<Int96Type>::new(to_compare))
+            }
             DataType::Int64Decimal(0) => {
                 Box::new(PrimitiveComparator::<Int64Decimal0Type>::new(to_compare))
             }
@@ -215,6 +218,27 @@ fn comparators_for<'a>(
             }
             DataType::Int64Decimal(10) => {
                 Box::new(PrimitiveComparator::<Int64Decimal10Type>::new(to_compare))
+            }
+            DataType::Int96Decimal(0) => {
+                Box::new(PrimitiveComparator::<Int96Decimal0Type>::new(to_compare))
+            }
+            DataType::Int96Decimal(1) => {
+                Box::new(PrimitiveComparator::<Int96Decimal1Type>::new(to_compare))
+            }
+            DataType::Int96Decimal(2) => {
+                Box::new(PrimitiveComparator::<Int96Decimal2Type>::new(to_compare))
+            }
+            DataType::Int96Decimal(3) => {
+                Box::new(PrimitiveComparator::<Int96Decimal3Type>::new(to_compare))
+            }
+            DataType::Int96Decimal(4) => {
+                Box::new(PrimitiveComparator::<Int96Decimal4Type>::new(to_compare))
+            }
+            DataType::Int96Decimal(5) => {
+                Box::new(PrimitiveComparator::<Int96Decimal5Type>::new(to_compare))
+            }
+            DataType::Int96Decimal(10) => {
+                Box::new(PrimitiveComparator::<Int96Decimal10Type>::new(to_compare))
             }
             DataType::UInt8 => {
                 Box::new(PrimitiveComparator::<UInt8Type>::new(to_compare))

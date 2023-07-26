@@ -18,10 +18,12 @@
 use crate::data_type::{ByteArray, DataType, FixedLenByteArray, Int96};
 // TODO: clean up imports (best done when there are few moving parts)
 use arrow::array::{
-    Array, ArrayRef, BinaryBuilder, DecimalBuilder, FixedSizeBinaryBuilder,
-    IntervalDayTimeArray, IntervalDayTimeBuilder, IntervalYearMonthArray,
-    IntervalYearMonthBuilder, LargeBinaryBuilder, LargeStringBuilder, PrimitiveBuilder,
-    PrimitiveDictionaryBuilder, StringBuilder, StringDictionaryBuilder,
+    Array, ArrayRef, BinaryBuilder, DecimalBuilder, FixedSizeBinaryBuilder, Int96Array,
+    Int96Decimal0Array, Int96Decimal10Array, Int96Decimal1Array, Int96Decimal2Array,
+    Int96Decimal3Array, Int96Decimal4Array, Int96Decimal5Array, IntervalDayTimeArray,
+    IntervalDayTimeBuilder, IntervalYearMonthArray, IntervalYearMonthBuilder,
+    LargeBinaryBuilder, LargeStringBuilder, PrimitiveBuilder, PrimitiveDictionaryBuilder,
+    StringBuilder, StringDictionaryBuilder,
 };
 use arrow::compute::cast;
 use std::convert::{From, TryInto};
@@ -176,12 +178,45 @@ impl Converter<Vec<Option<Int96>>, TimestampNanosecondArray> for Int96ArrayConve
         Ok(TimestampNanosecondArray::from_opt_vec(
             source
                 .into_iter()
-                .map(|int96| int96.map(|val| val.to_i64() * 1_000_000))
+                .map(|int96| int96.map(|val| val.to_i64()))
                 .collect(),
             self.timezone.clone(),
         ))
     }
 }
+
+impl Converter<Vec<Option<Int96>>, Int96Array> for Int96ArrayConverter {
+    fn convert(&self, source: Vec<Option<Int96>>) -> Result<Int96Array> {
+        Ok(Int96Array::from(
+            source
+                .into_iter()
+                .map(|int96| int96.map(|val| val.to_i128()))
+                .collect::<Vec<_>>(),
+        ))
+    }
+}
+macro_rules! make_decimal_96_converter {
+    ($array_t:ty) => {
+        impl Converter<Vec<Option<Int96>>, $array_t> for Int96ArrayConverter {
+            fn convert(&self, source: Vec<Option<Int96>>) -> Result<$array_t> {
+                Ok(<$array_t>::from(
+                    source
+                        .into_iter()
+                        .map(|int96| int96.map(|val| val.to_i128()))
+                        .collect::<Vec<_>>(),
+                ))
+            }
+        }
+    };
+}
+
+make_decimal_96_converter!(Int96Decimal0Array);
+make_decimal_96_converter!(Int96Decimal1Array);
+make_decimal_96_converter!(Int96Decimal2Array);
+make_decimal_96_converter!(Int96Decimal3Array);
+make_decimal_96_converter!(Int96Decimal4Array);
+make_decimal_96_converter!(Int96Decimal5Array);
+make_decimal_96_converter!(Int96Decimal10Array);
 
 pub struct Utf8ArrayConverter {}
 
@@ -370,8 +405,11 @@ pub type PrimitiveDictionaryConverter<K, V> = ArrayRefConverter<
     DictionaryArrayConverter<Int32Type, V, ParquetInt32Type>,
 >;
 
-pub type Int96Converter =
+pub type Int96TimestampConverter =
     ArrayRefConverter<Vec<Option<Int96>>, TimestampNanosecondArray, Int96ArrayConverter>;
+
+pub type Int96Converter =
+    ArrayRefConverter<Vec<Option<Int96>>, Int96Array, Int96ArrayConverter>;
 
 pub type FixedLenBinaryConverter = ArrayRefConverter<
     Vec<Option<FixedLenByteArray>>,
