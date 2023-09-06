@@ -261,29 +261,40 @@ fn like_utf8_impl<OffsetSize: StringOffsetSizeTrait>(
         let re = if let Some(ref regex) = map.get(pat) {
             regex
         } else {
-            let mut prev_char = None;
-            let mut re_pattern = pat
-                .replace(
-                    |c| {
-                        let res = c == '%' && prev_char != Some('\\');
-                        prev_char = Some(c);
-                        res
-                    },
-                    ".*",
-                )
-                .replace("\\%", "%");
+            let mut is_escaped = false;
+            let mut re_pattern = String::new();
+            let regex_chars = "-[]{}()*+?.,^$|#";
+            for c in pat.chars() {
+                if is_escaped {
+                    is_escaped = false;
+                    if c == '%' {
+                        re_pattern.push('%');
+                        continue;
+                    } else if c == '_' {
+                        re_pattern.push('_');
+                        continue;
+                    } else if c == '\\' {
+                        re_pattern.push_str("\\\\");
+                        continue;
+                    } else {
+                        re_pattern.push_str("\\\\");
+                    }
+                    
+                }
 
-            let mut prev_char = None;
-            re_pattern = re_pattern
-                .replace(
-                    |c| {
-                        let res = c == '_' && prev_char != Some('\\');
-                        prev_char = Some(c);
-                        res
-                    },
-                    ".",
-                )
-                .replace("\\_", "_");
+                if regex_chars.find(c).is_some() {
+                    re_pattern.push('\\');
+                    re_pattern.push(c);
+                } else if c == '%' {
+                    re_pattern.push_str(".*");
+                } else if c == '_' {
+                    re_pattern.push('.');
+                } else if c == '\\' {
+                    is_escaped = true;
+                } else {
+                    re_pattern.push(c);
+                }
+            }
             let re = RegexBuilder::new(&format!("^{}$", re_pattern))
                 .case_insensitive(!case_sensitive)
                 .build()
