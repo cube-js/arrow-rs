@@ -276,11 +276,9 @@ fn like_utf8_impl<OffsetSize: StringOffsetSizeTrait>(
                     } else if c == '\\' {
                         re_pattern.push_str("\\\\");
                         continue;
-                    } else {
-                        re_pattern.push_str("\\\\");
                     }
-                    
                 }
+
 
                 if regex_chars.find(c).is_some() {
                     re_pattern.push('\\');
