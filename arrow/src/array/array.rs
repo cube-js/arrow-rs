@@ -235,6 +235,7 @@ pub fn make_array(data: ArrayData) -> ArrayRef {
         DataType::Int16 => Arc::new(Int16Array::from(data)) as ArrayRef,
         DataType::Int32 => Arc::new(Int32Array::from(data)) as ArrayRef,
         DataType::Int64 => Arc::new(Int64Array::from(data)) as ArrayRef,
+        DataType::Int96 => Arc::new(Int96Array::from(data)) as ArrayRef,
         DataType::Int64Decimal(0) => Arc::new(Int64Decimal0Array::from(data)) as ArrayRef,
         DataType::Int64Decimal(1) => Arc::new(Int64Decimal1Array::from(data)) as ArrayRef,
         DataType::Int64Decimal(2) => Arc::new(Int64Decimal2Array::from(data)) as ArrayRef,
@@ -243,6 +244,15 @@ pub fn make_array(data: ArrayData) -> ArrayRef {
         DataType::Int64Decimal(5) => Arc::new(Int64Decimal5Array::from(data)) as ArrayRef,
         DataType::Int64Decimal(10) => {
             Arc::new(Int64Decimal10Array::from(data)) as ArrayRef
+        }
+        DataType::Int96Decimal(0) => Arc::new(Int96Decimal0Array::from(data)) as ArrayRef,
+        DataType::Int96Decimal(1) => Arc::new(Int96Decimal1Array::from(data)) as ArrayRef,
+        DataType::Int96Decimal(2) => Arc::new(Int96Decimal2Array::from(data)) as ArrayRef,
+        DataType::Int96Decimal(3) => Arc::new(Int96Decimal3Array::from(data)) as ArrayRef,
+        DataType::Int96Decimal(4) => Arc::new(Int96Decimal4Array::from(data)) as ArrayRef,
+        DataType::Int96Decimal(5) => Arc::new(Int96Decimal5Array::from(data)) as ArrayRef,
+        DataType::Int96Decimal(10) => {
+            Arc::new(Int96Decimal10Array::from(data)) as ArrayRef
         }
         DataType::UInt8 => Arc::new(UInt8Array::from(data)) as ArrayRef,
         DataType::UInt16 => Arc::new(UInt16Array::from(data)) as ArrayRef,
@@ -401,6 +411,7 @@ pub fn new_null_array(data_type: &DataType, length: usize) -> ArrayRef {
         // expanding this into Date23{unit}Type results in needless branching
         DataType::Time32(_) => new_null_sized_array::<Int32Type>(data_type, length),
         DataType::Int64 => new_null_sized_array::<Int64Type>(data_type, length),
+        DataType::Int96 => new_null_sized_array::<Int96Type>(data_type, length),
         DataType::Int64Decimal(0) => {
             new_null_sized_array::<Int64Decimal0Type>(data_type, length)
         }
@@ -423,6 +434,28 @@ pub fn new_null_array(data_type: &DataType, length: usize) -> ArrayRef {
             new_null_sized_array::<Int64Decimal10Type>(data_type, length)
         }
         DataType::Int64Decimal(_) => panic!("invalid scale"),
+        DataType::Int96Decimal(0) => {
+            new_null_sized_array::<Int96Decimal0Type>(data_type, length)
+        }
+        DataType::Int96Decimal(1) => {
+            new_null_sized_array::<Int96Decimal1Type>(data_type, length)
+        }
+        DataType::Int96Decimal(2) => {
+            new_null_sized_array::<Int96Decimal2Type>(data_type, length)
+        }
+        DataType::Int96Decimal(3) => {
+            new_null_sized_array::<Int96Decimal3Type>(data_type, length)
+        }
+        DataType::Int96Decimal(4) => {
+            new_null_sized_array::<Int96Decimal4Type>(data_type, length)
+        }
+        DataType::Int96Decimal(5) => {
+            new_null_sized_array::<Int96Decimal5Type>(data_type, length)
+        }
+        DataType::Int96Decimal(10) => {
+            new_null_sized_array::<Int96Decimal10Type>(data_type, length)
+        }
+        DataType::Int96Decimal(_) => panic!("invalid scale"),
         DataType::UInt64 => new_null_sized_array::<UInt64Type>(data_type, length),
         DataType::Float64 => new_null_sized_array::<Float64Type>(data_type, length),
         DataType::Date64 => new_null_sized_array::<Date64Type>(data_type, length),

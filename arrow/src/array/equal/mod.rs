@@ -175,7 +175,13 @@ fn equal_values(
         DataType::Int64 => primitive_equal::<i64>(
             lhs, rhs, lhs_nulls, rhs_nulls, lhs_start, rhs_start, len,
         ),
+        DataType::Int96 => primitive_equal::<i128>(
+            lhs, rhs, lhs_nulls, rhs_nulls, lhs_start, rhs_start, len,
+        ),
         DataType::Int64Decimal(_) => primitive_equal::<i64>(
+            lhs, rhs, lhs_nulls, rhs_nulls, lhs_start, rhs_start, len,
+        ),
+        DataType::Int96Decimal(_) => primitive_equal::<i64>(
             lhs, rhs, lhs_nulls, rhs_nulls, lhs_start, rhs_start, len,
         ),
         DataType::Float32 => primitive_equal::<f32>(

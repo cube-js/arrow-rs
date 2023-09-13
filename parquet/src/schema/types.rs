@@ -445,6 +445,7 @@ impl<'a> PrimitiveTypeBuilder<'a> {
         match self.physical_type {
             PhysicalType::INT32
             | PhysicalType::INT64
+            | PhysicalType::INT96
             | PhysicalType::BYTE_ARRAY
             | PhysicalType::FIXED_LEN_BYTE_ARRAY => (),
             _ => {
@@ -490,6 +491,14 @@ impl<'a> PrimitiveTypeBuilder<'a> {
                 if self.precision > 18 {
                     return Err(general_err!(
                         "Cannot represent INT64 as DECIMAL with precision {}",
+                        self.precision
+                    ));
+                }
+            }
+            PhysicalType::INT96 => {
+                if self.precision > 27 {
+                    return Err(general_err!(
+                        "Cannot represent INT96 as DECIMAL with precision {}",
                         self.precision
                     ));
                 }

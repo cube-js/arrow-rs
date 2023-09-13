@@ -53,6 +53,8 @@ pub enum DataType {
     Int32,
     /// A signed 64-bit integer.
     Int64,
+    /// A signed 96-bit integer.
+    Int96,
     /// An unsigned 8-bit integer.
     UInt8,
     /// An unsigned 16-bit integer.
@@ -131,6 +133,8 @@ pub enum DataType {
     Decimal(usize, usize),
     /// Int64 mapped decimal
     Int64Decimal(usize),
+    /// Int96 mapped decimal
+    Int96Decimal(usize),
 }
 
 /// An absolute length of time in seconds, milliseconds, microseconds or nanoseconds.
@@ -295,6 +299,19 @@ impl DataType {
                                     "decimalint scale missing".to_string(),
                                 )),
                             },
+                            Some(96) => match map.get("scale") {
+                                Some(&Value::Number(ref scale)) => match scale.as_u64() {
+                                    Some(scale) => {
+                                        Ok(DataType::Int96Decimal(scale as usize))
+                                    }
+                                    _ => Err(ArrowError::ParseError(
+                                        "decimalint scale invalid".to_string(),
+                                    )),
+                                },
+                                _ => Err(ArrowError::ParseError(
+                                    "decimalint scale missing".to_string(),
+                                )),
+                            },
                             _ => Err(ArrowError::ParseError(
                                 "decimalint bitWidth missing or invalid".to_string(),
                             )),
@@ -314,6 +331,7 @@ impl DataType {
                             Some(16) => Ok(DataType::Int16),
                             Some(32) => Ok(DataType::Int32),
                             Some(64) => Ok(DataType::Int64),
+                            Some(96) => Ok(DataType::Int96),
                             _ => Err(ArrowError::ParseError(
                                 "int bitWidth missing or invalid".to_string(),
                             )),
@@ -386,8 +404,12 @@ impl DataType {
             DataType::Int16 => json!({"name": "int", "bitWidth": 16, "isSigned": true}),
             DataType::Int32 => json!({"name": "int", "bitWidth": 32, "isSigned": true}),
             DataType::Int64 => json!({"name": "int", "bitWidth": 64, "isSigned": true}),
+            DataType::Int96 => json!({"name": "int", "bitWidth": 96, "isSigned": true}),
             DataType::Int64Decimal(scale) => {
                 json!({"name": "intdecimal", "bitWidth": 64, "isSigned": true, "scale": scale})
+            }
+            DataType::Int96Decimal(scale) => {
+                json!({"name": "intdecimal", "bitWidth": 96, "isSigned": true, "scale": scale})
             }
             DataType::UInt8 => json!({"name": "int", "bitWidth": 8, "isSigned": false}),
             DataType::UInt16 => json!({"name": "int", "bitWidth": 16, "isSigned": false}),
@@ -481,6 +503,7 @@ impl DataType {
                 | Float32
                 | Float64
                 | Int64Decimal(_)
+                | Int96Decimal(_)
         )
     }
 

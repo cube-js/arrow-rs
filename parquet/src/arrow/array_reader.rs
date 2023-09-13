@@ -42,8 +42,9 @@ use arrow::datatypes::{
     Int16Type as ArrowInt16Type, Int32Type as ArrowInt32Type, Int64Decimal0Type,
     Int64Decimal10Type, Int64Decimal1Type, Int64Decimal2Type, Int64Decimal3Type,
     Int64Decimal4Type, Int64Decimal5Type, Int64Type as ArrowInt64Type,
-    Int8Type as ArrowInt8Type, IntervalUnit, Schema,
-    Time32MillisecondType as ArrowTime32MillisecondType,
+    Int8Type as ArrowInt8Type, Int96Decimal0Type, Int96Decimal10Type, Int96Decimal1Type,
+    Int96Decimal2Type, Int96Decimal3Type, Int96Decimal4Type, Int96Decimal5Type,
+    IntervalUnit, Schema, Time32MillisecondType as ArrowTime32MillisecondType,
     Time32SecondType as ArrowTime32SecondType,
     Time64MicrosecondType as ArrowTime64MicrosecondType,
     Time64NanosecondType as ArrowTime64NanosecondType, TimeUnit as ArrowTimeUnit,
@@ -57,12 +58,13 @@ use arrow::datatypes::{
 use arrow::util::bit_util;
 
 use crate::arrow::converter::{
-    BinaryArrayConverter, BinaryConverter, Converter, DecimalArrayConverter,
-    DecimalConverter, FixedLenBinaryConverter, FixedSizeArrayConverter,
-    Int96ArrayConverter, Int96Converter, IntervalDayTimeArrayConverter,
-    IntervalDayTimeConverter, IntervalYearMonthArrayConverter,
-    IntervalYearMonthConverter, LargeBinaryArrayConverter, LargeBinaryConverter,
-    LargeUtf8ArrayConverter, LargeUtf8Converter,
+    ArrayRefConverter, BinaryArrayConverter, BinaryConverter, Converter,
+    DecimalArrayConverter, DecimalConverter, FixedLenBinaryConverter,
+    FixedSizeArrayConverter, Int96ArrayConverter, Int96Converter,
+    IntervalDayTimeArrayConverter, IntervalDayTimeConverter,
+    IntervalYearMonthArrayConverter, IntervalYearMonthConverter,
+    LargeBinaryArrayConverter, LargeBinaryConverter, LargeUtf8ArrayConverter,
+    LargeUtf8Converter,
 };
 use crate::arrow::record_reader::RecordReader;
 use crate::arrow::schema::parquet_to_arrow_field;
@@ -71,7 +73,7 @@ use crate::column::page::PageIterator;
 use crate::column::reader::ColumnReaderImpl;
 use crate::data_type::{
     BoolType, ByteArrayType, DataType, DoubleType, FixedLenByteArrayType, FloatType,
-    Int32Type, Int64Type, Int96Type,
+    Int32Type, Int64Type, Int96, Int96Type,
 };
 use crate::errors::{ParquetError, ParquetError::ArrowError, Result};
 use crate::file::reader::{FilePageIterator, FileReader};
@@ -80,6 +82,8 @@ use crate::schema::types::{
 };
 use crate::schema::visitor::TypeVisitor;
 use std::any::Any;
+
+use super::converter::Int96TimestampConverter;
 
 /// Array reader reads parquet data into arrow array.
 pub trait ArrayReader {
@@ -1403,6 +1407,24 @@ impl<'a> TypeVisitor<Option<Box<dyn ArrayReader>>, &'a ArrayReaderBuilderContext
     }
 }
 
+macro_rules! make_decimal_96_reader {
+    ($array_t:ty, $page_iterator:expr, $column_desc:expr, $arrow_type:expr) => {{
+        let converter =
+            ArrayRefConverter::<Vec<Option<Int96>>, $array_t, Int96ArrayConverter>::new(
+                Int96ArrayConverter { timezone: None },
+            );
+        Ok(Box::new(ComplexObjectArrayReader::<
+            Int96Type,
+            ArrayRefConverter<Vec<Option<Int96>>, $array_t, Int96ArrayConverter>,
+        >::new(
+            $page_iterator,
+            $column_desc,
+            converter,
+            $arrow_type,
+        )?))
+    }};
+}
+
 impl<'a> ArrayReaderBuilder {
     /// Construct array reader builder.
     fn new(
@@ -1483,27 +1505,79 @@ impl<'a> ArrayReaderBuilder {
                 arrow_type,
             )?)),
             PhysicalType::INT96 => {
-                // get the optional timezone information from arrow type
-                let timezone = arrow_type
-                    .as_ref()
-                    .map(|data_type| {
-                        if let ArrowType::Timestamp(_, tz) = data_type {
-                            tz.clone()
-                        } else {
-                            None
-                        }
-                    })
-                    .flatten();
-                let converter = Int96Converter::new(Int96ArrayConverter { timezone });
-                Ok(Box::new(ComplexObjectArrayReader::<
-                    Int96Type,
-                    Int96Converter,
-                >::new(
-                    page_iterator,
-                    column_desc,
-                    converter,
-                    arrow_type,
-                )?))
+                if cur_type.get_basic_info().converted_type() == ConvertedType::DECIMAL {
+                    match cur_type.get_scale() {
+                        0 => make_decimal_96_reader!(
+                            PrimitiveArray<Int96Decimal0Type>,
+                            page_iterator,
+                            column_desc,
+                            arrow_type
+                        ),
+                        1 => make_decimal_96_reader!(
+                            PrimitiveArray<Int96Decimal1Type>,
+                            page_iterator,
+                            column_desc,
+                            arrow_type
+                        ),
+                        2 => make_decimal_96_reader!(
+                            PrimitiveArray<Int96Decimal2Type>,
+                            page_iterator,
+                            column_desc,
+                            arrow_type
+                        ),
+                        3 => make_decimal_96_reader!(
+                            PrimitiveArray<Int96Decimal3Type>,
+                            page_iterator,
+                            column_desc,
+                            arrow_type
+                        ),
+                        4 => make_decimal_96_reader!(
+                            PrimitiveArray<Int96Decimal4Type>,
+                            page_iterator,
+                            column_desc,
+                            arrow_type
+                        ),
+                        5 => make_decimal_96_reader!(
+                            PrimitiveArray<Int96Decimal5Type>,
+                            page_iterator,
+                            column_desc,
+                            arrow_type
+                        ),
+                        10 => make_decimal_96_reader!(
+                            PrimitiveArray<Int96Decimal10Type>,
+                            page_iterator,
+                            column_desc,
+                            arrow_type
+                        ),
+                        x => return Err(ArrowError(format!("Unsupported scale: {}", x))),
+                    }
+                } else if let Some(ArrowType::Timestamp(_, tz)) = arrow_type.as_ref() {
+                    // get the optional timezone information from arrow type
+                    let converter = Int96TimestampConverter::new(Int96ArrayConverter {
+                        timezone: tz.clone(),
+                    });
+                    Ok(Box::new(ComplexObjectArrayReader::<
+                        Int96Type,
+                        Int96TimestampConverter,
+                    >::new(
+                        page_iterator,
+                        column_desc,
+                        converter,
+                        arrow_type,
+                    )?))
+                } else {
+                    let converter =
+                        Int96Converter::new(Int96ArrayConverter { timezone: None });
+                    Ok(Box::new(ComplexObjectArrayReader::<
+                        Int96Type,
+                        Int96Converter,
+                    >::new(
+                        page_iterator,
+                        column_desc,
+                        converter,
+                        arrow_type,
+                    )?))
+                }
             }
             PhysicalType::FLOAT => Ok(Box::new(PrimitiveArrayReader::<FloatType>::new(
                 page_iterator,

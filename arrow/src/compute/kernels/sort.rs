@@ -177,6 +177,9 @@ pub fn sort_to_indices(
         DataType::Int64 => {
             sort_primitive::<Int64Type, _>(values, v, n, cmp, &options, limit)
         }
+        DataType::Int96 => {
+            sort_primitive::<Int96Type, _>(values, v, n, cmp, &options, limit)
+        }
         DataType::UInt8 => {
             sort_primitive::<UInt8Type, _>(values, v, n, cmp, &options, limit)
         }
@@ -209,6 +212,27 @@ pub fn sort_to_indices(
         }
         DataType::Int64Decimal(10) => {
             sort_primitive::<Int64Decimal10Type, _>(values, v, n, cmp, &options, limit)
+        }
+        DataType::Int96Decimal(0) => {
+            sort_primitive::<Int96Decimal0Type, _>(values, v, n, cmp, &options, limit)
+        }
+        DataType::Int96Decimal(1) => {
+            sort_primitive::<Int96Decimal1Type, _>(values, v, n, cmp, &options, limit)
+        }
+        DataType::Int96Decimal(2) => {
+            sort_primitive::<Int96Decimal2Type, _>(values, v, n, cmp, &options, limit)
+        }
+        DataType::Int96Decimal(3) => {
+            sort_primitive::<Int96Decimal3Type, _>(values, v, n, cmp, &options, limit)
+        }
+        DataType::Int96Decimal(4) => {
+            sort_primitive::<Int96Decimal4Type, _>(values, v, n, cmp, &options, limit)
+        }
+        DataType::Int96Decimal(5) => {
+            sort_primitive::<Int96Decimal5Type, _>(values, v, n, cmp, &options, limit)
+        }
+        DataType::Int96Decimal(10) => {
+            sort_primitive::<Int96Decimal10Type, _>(values, v, n, cmp, &options, limit)
         }
         DataType::Float32 => {
             sort_primitive::<Float32Type, _>(values, v, n, total_cmp_32, &options, limit)
