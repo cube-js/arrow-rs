@@ -193,6 +193,12 @@ impl ArrowNativeType for i64 {
     fn to_isize(&self) -> Option<isize> {
         num::ToPrimitive::to_isize(self)
     }
+    ///
+    /// Convert native type from i64.
+    #[inline]
+    fn from_i64(val: i64) -> Option<Self> {
+        Some(val)
+    }
 }
 
 impl JsonSerializable for i128 {
