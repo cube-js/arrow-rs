@@ -293,9 +293,10 @@ fn like_utf8_impl<OffsetSize: StringOffsetSizeTrait>(
                 }
             }
             if is_escaped {
-                return Err(ArrowError::InvalidArgumentError(
-                    "LIKE pattern must not end with escape character".to_string(),
-                ));
+                return Err(ArrowError::InvalidArgumentError(format!(
+                    "LIKE pattern must not end with escape character. Pattern {}",
+                    pat
+                )));
             }
             let re = RegexBuilder::new(&format!("^{}$", re_pattern))
                 .case_insensitive(!case_sensitive)
