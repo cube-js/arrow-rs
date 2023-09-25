@@ -279,7 +279,6 @@ fn like_utf8_impl<OffsetSize: StringOffsetSizeTrait>(
                     }
                 }
 
-
                 if regex_chars.find(c).is_some() {
                     re_pattern.push('\\');
                     re_pattern.push(c);
@@ -292,6 +291,11 @@ fn like_utf8_impl<OffsetSize: StringOffsetSizeTrait>(
                 } else {
                     re_pattern.push(c);
                 }
+            }
+            if is_escaped {
+                return Err(ArrowError::InvalidArgumentError(
+                    "LIKE pattern must not end with escape character".to_string(),
+                ));
             }
             let re = RegexBuilder::new(&format!("^{}$", re_pattern))
                 .case_insensitive(!case_sensitive)
