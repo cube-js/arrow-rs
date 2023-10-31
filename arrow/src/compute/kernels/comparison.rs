@@ -240,7 +240,7 @@ pub fn ilike_utf8<OffsetSize: StringOffsetSizeTrait>(
 fn like_to_regex(pat: &str) -> Result<String> {
     let mut is_escaped = false;
     let mut re_pattern = String::new();
-    let regex_chars = "-[]{}()*+?.,^$|#";
+    let regex_chars = "-[]{}()*+?.^$|#";
     for c in pat.chars() {
         if is_escaped {
             is_escaped = false;
