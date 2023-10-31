@@ -240,7 +240,7 @@ pub fn ilike_utf8<OffsetSize: StringOffsetSizeTrait>(
 fn like_to_regex(pat: &str) -> Result<String> {
     let mut is_escaped = false;
     let mut re_pattern = String::new();
-    let regex_chars = "-[]{}()*+?.,^$|#";
+    let regex_chars = "-[]{}()*+?.^$|#";
     for c in pat.chars() {
         if is_escaped {
             is_escaped = false;
@@ -302,47 +302,7 @@ fn like_utf8_impl<OffsetSize: StringOffsetSizeTrait>(
         let re = if let Some(ref regex) = map.get(pat) {
             regex
         } else {
-<<<<<<< HEAD
             let re_pattern = like_to_regex(pat)?;
-=======
-            let mut is_escaped = false;
-            let mut re_pattern = String::new();
-            let regex_chars = "-[]{}()*+?.,^$|#";
-            for c in pat.chars() {
-                if is_escaped {
-                    is_escaped = false;
-                    if c == '%' {
-                        re_pattern.push('%');
-                        continue;
-                    } else if c == '_' {
-                        re_pattern.push('_');
-                        continue;
-                    } else if c == '\\' {
-                        re_pattern.push_str("\\\\");
-                        continue;
-                    }
-                }
-
-                if regex_chars.find(c).is_some() {
-                    re_pattern.push('\\');
-                    re_pattern.push(c);
-                } else if c == '%' {
-                    re_pattern.push_str(".*");
-                } else if c == '_' {
-                    re_pattern.push('.');
-                } else if c == '\\' {
-                    is_escaped = true;
-                } else {
-                    re_pattern.push(c);
-                }
-            }
-            if is_escaped {
-                return Err(ArrowError::InvalidArgumentError(format!(
-                    "LIKE pattern must not end with escape character. Pattern {}",
-                    pat
-                )));
-            }
->>>>>>> c0df3eacf (update)
             let re = RegexBuilder::new(&format!("^{}$", re_pattern))
                 .case_insensitive(!case_sensitive)
                 .build()
