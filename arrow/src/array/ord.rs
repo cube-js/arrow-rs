@@ -126,6 +126,7 @@ pub fn build_compare(left: &Array, right: &Array) -> Result<DynComparator> {
         (Int16, Int16) => compare_primitives::<Int16Type>(left, right),
         (Int32, Int32) => compare_primitives::<Int32Type>(left, right),
         (Int64, Int64) => compare_primitives::<Int64Type>(left, right),
+        (Int96, Int96) => compare_primitives::<Int96Type>(left, right),
         (Int64Decimal(0), Int64Decimal(0)) => {
             compare_primitives::<Int64Decimal0Type>(left, right)
         }
@@ -146,6 +147,27 @@ pub fn build_compare(left: &Array, right: &Array) -> Result<DynComparator> {
         }
         (Int64Decimal(10), Int64Decimal(10)) => {
             compare_primitives::<Int64Decimal10Type>(left, right)
+        }
+        (Int96Decimal(0), Int96Decimal(0)) => {
+            compare_primitives::<Int96Decimal0Type>(left, right)
+        }
+        (Int96Decimal(1), Int96Decimal(1)) => {
+            compare_primitives::<Int96Decimal1Type>(left, right)
+        }
+        (Int96Decimal(2), Int96Decimal(2)) => {
+            compare_primitives::<Int96Decimal2Type>(left, right)
+        }
+        (Int96Decimal(3), Int96Decimal(3)) => {
+            compare_primitives::<Int96Decimal3Type>(left, right)
+        }
+        (Int96Decimal(4), Int96Decimal(4)) => {
+            compare_primitives::<Int96Decimal4Type>(left, right)
+        }
+        (Int96Decimal(5), Int96Decimal(5)) => {
+            compare_primitives::<Int96Decimal5Type>(left, right)
+        }
+        (Int96Decimal(10), Int96Decimal(10)) => {
+            compare_primitives::<Int96Decimal10Type>(left, right)
         }
         (Float32, Float32) => compare_float::<Float32Type>(left, right),
         (Float64, Float64) => compare_float::<Float64Type>(left, right),
