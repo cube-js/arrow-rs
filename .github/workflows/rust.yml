@@ -31,7 +31,7 @@ jobs:
     strategy:
       matrix:
         arch: [amd64]
-        rust: [nightly-2022-03-08]
+        rust: [nightly-2022-03-22]
     container:
       image: ${{ matrix.arch }}/rust
       env:
@@ -74,7 +74,7 @@ jobs:
     strategy:
       matrix:
         arch: [amd64]
-        rust: [nightly-2022-03-08]
+        rust: [nightly-2022-03-22]
     container:
       image: ${{ matrix.arch }}/rust
       env:
@@ -180,7 +180,7 @@ jobs:
           export CARGO_HOME="/github/home/.cargo"
           export CARGO_TARGET_DIR="/github/home/target"
           cd arrow/test/dependency/simd
-          cargo check
+          cargo +${{ matrix.rust }} check
 
   windows-and-macos:
     name: Test on ${{ matrix.os }} Rust ${{ matrix.rust }}
@@ -188,7 +188,7 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, macos-latest]
-        rust: [nightly-2022-03-08]
+        rust: [nightly-2022-03-22]
     steps:
       - uses: actions/checkout@v2
         with:
@@ -216,7 +216,7 @@ jobs:
     strategy:
       matrix:
         arch: [amd64]
-        rust: [nightly-2022-03-08]
+        rust: [nightly-2022-03-22]
     container:
       image: ${{ matrix.arch }}/rust
       env:
@@ -256,7 +256,7 @@ jobs:
     strategy:
       matrix:
         arch: [amd64]
-        rust: [nightly-2022-03-08]
+        rust: [nightly-2022-03-22]
     container:
       image: ${{ matrix.arch }}/rust
       env:
@@ -299,8 +299,8 @@ jobs:
       - uses: actions/checkout@v2
       - name: Setup toolchain
         run: |
-          rustup toolchain install nightly-2022-03-08
-          rustup default nightly-2022-03-08
+          rustup toolchain install nightly-2022-03-22
+          rustup default nightly-2022-03-22
           rustup component add rustfmt
       - name: Run
         run: cargo fmt --all -- --check
@@ -343,8 +343,8 @@ jobs:
 
           rustup toolchain install stable
           rustup default stable
-          cargo install --version 0.18.2 cargo-tarpaulin
-          cargo tarpaulin --all --out Xml
+          cargo +${{ matrix.rust }} install --version 0.18.2 cargo-tarpaulin
+          cargo +${{ matrix.rust }} tarpaulin --all --out Xml
       - name: Report coverage
         continue-on-error: true
         run: bash <(curl -s https://codecov.io/bash)
@@ -391,8 +391,8 @@ jobs:
           export CARGO_HOME="/github/home/.cargo"
           export CARGO_TARGET_DIR="/github/home/target"
           cd arrow
-          cargo build --no-default-features --features=csv,ipc,simd --target wasm32-unknown-unknown
-          cargo build --no-default-features --features=csv,ipc,simd --target wasm32-wasi
+          cargo +${{ matrix.rust }} build --no-default-features --features=csv,ipc,simd --target wasm32-unknown-unknown
+          cargo +${{ matrix.rust }} build --no-default-features --features=csv,ipc,simd --target wasm32-wasi
 
   # test doc links still work
   docs:
@@ -446,7 +446,7 @@ jobs:
     strategy:
       matrix:
         arch: [amd64]
-        rust: [nightly-2022-03-08]
+        rust: [nightly-2022-03-22]
     container:
       image: ${{ matrix.arch }}/rust
       env:
