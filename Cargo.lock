@@ -1188,7 +1188,6 @@ dependencies = [
  "thrift",
  "tokio",
  "zstd",
- "zstd-sys",
 ]
 
 [[package]]
