@@ -52,13 +52,11 @@ name = "arrow"
 version = "11.1.0"
 dependencies = [
  "bitflags",
- "cc",
  "chrono",
  "flatbuffers",
  "half",
  "hex",
  "indexmap",
- "jobserver",
  "lazy_static",
  "lexical-core",
  "multiversion",
@@ -68,7 +66,6 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "zstd-sys",
 ]
 
 [[package]]
@@ -547,7 +544,6 @@ dependencies = [
  "snap",
  "thrift",
  "zstd",
- "zstd-sys",
 ]
 
 [[package]]
