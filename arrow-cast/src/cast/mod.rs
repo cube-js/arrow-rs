@@ -1519,6 +1519,12 @@ pub fn cast_with_options(
         (BinaryView, _) => Err(ArrowError::CastError(format!(
             "Casting from {from_type} to {to_type} not supported",
         ))),
+        (Float32, Utf8) => cast_float_to_string::<Float32Type, i32>(array),
+        (Float32, LargeUtf8) => cast_float_to_string::<Float32Type, i64>(array),
+        (Float32, Utf8View) => cast_float_to_string_view::<Float32Type>(array),
+        (Float64, Utf8) => cast_float_to_string::<Float64Type, i32>(array),
+        (Float64, LargeUtf8) => cast_float_to_string::<Float64Type, i64>(array),
+        (Float64, Utf8View) => cast_float_to_string_view::<Float64Type>(array),
         (from_type, Utf8View) if from_type.is_primitive() => {
             value_to_string_view(array, cast_options)
         }
@@ -4284,6 +4290,93 @@ mod tests {
             let arr = cast(&array, &DataType::Utf8View).unwrap();
             assert_eq!(expected.as_ref(), arr.as_ref());
         }
+    }
+
+    #[test]
+    fn test_cast_float_to_string_trims_fraction() {
+        let f64_array: ArrayRef = Arc::new(Float64Array::from(vec![
+            Some(1.0),
+            Some(-2.0),
+            Some(100.0),
+            Some(0.1),
+            Some(1.5),
+            Some(123456789.0),
+            Some(1.5e10),
+            Some(1e14),
+            Some(1e15),
+            Some(1e16),
+            Some(1e-5),
+            Some(1e-7),
+            Some(-0.0),
+            Some(f64::NAN),
+            Some(f64::INFINITY),
+            Some(f64::NEG_INFINITY),
+            None,
+        ]));
+        let f64_expected = vec![
+            Some("1"),
+            Some("-2"),
+            Some("100"),
+            Some("0.1"),
+            Some("1.5"),
+            Some("123456789"),
+            Some("1.5e10"),
+            Some("1e14"),
+            Some("1e15"),
+            Some("1e16"),
+            Some("0.00001"),
+            Some("1e-7"),
+            Some("0"),
+            Some("NaN"),
+            Some("inf"),
+            Some("-inf"),
+            None,
+        ];
+        let f32_array: ArrayRef = Arc::new(Float32Array::from(vec![
+            Some(1.0),
+            Some(0.1),
+            Some(16777216.0),
+            Some(1e10),
+            Some(-0.0),
+            None,
+        ]));
+        let f32_expected = vec![
+            Some("1"),
+            Some("0.1"),
+            Some("16777216"),
+            Some("1e10"),
+            Some("0"),
+            None,
+        ];
+
+        for (array, expected) in [(f64_array, f64_expected), (f32_array, f32_expected)] {
+            let expected_arrays: [ArrayRef; 3] = [
+                Arc::new(StringArray::from(expected.clone())),
+                Arc::new(LargeStringArray::from(expected.clone())),
+                Arc::new(StringViewArray::from(expected)),
+            ];
+            for expected in expected_arrays {
+                let to_type = expected.data_type();
+                assert!(can_cast_types(array.data_type(), to_type));
+                let result = cast(&array, to_type).unwrap();
+                assert_eq!(expected.as_ref(), result.as_ref(), "{to_type}");
+            }
+        }
+
+        // Dictionary values are cast with the same rules
+        let keys = Int32Array::from(vec![0, 1, 0]);
+        let values = Float64Array::from(vec![2.0, 2.5]);
+        let array = DictionaryArray::new(keys, Arc::new(values));
+        let result = cast(&array, &DataType::Utf8).unwrap();
+        let expected = StringArray::from(vec!["2", "2.5", "2"]);
+        assert_eq!(&expected, result.as_string::<i32>());
+
+        // Display formatting is unchanged
+        let array = Float64Array::from(vec![1.0]);
+        assert_eq!(
+            crate::display::array_value_to_string(&array, 0).unwrap(),
+            "1.0"
+        );
     }
 
     #[test]

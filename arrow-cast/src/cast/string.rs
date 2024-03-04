@@ -74,6 +74,63 @@ pub(crate) fn value_to_string_view(
     Ok(Arc::new(builder.finish()))
 }
 
+/// Writes a float without a trailing `.0`, e.g. `1.0` as `"1"`
+///
+/// Decimal exponents above 9 are written in scientific notation (`1e10`), and
+/// negative zero is written as `"0"`.
+fn write_float_trimmed<N>(value: N, buffer: &mut [u8; lexical_core::BUFFER_SIZE]) -> &str
+where
+    N: ArrowNativeTypeOp
+        + lexical_core::ToLexicalWithOptions<Options = lexical_core::WriteFloatOptions>,
+{
+    const OPTIONS: lexical_core::WriteFloatOptions = lexical_core::WriteFloatOptions::builder()
+        .trim_floats(true)
+        .build_strict();
+    let value = if value.is_zero() { N::ZERO } else { value };
+    let b = lexical_core::write_with_options::<_, { lexical_core::format::STANDARD }>(
+        value, buffer, &OPTIONS,
+    );
+    // Lexical core produces valid UTF-8
+    unsafe { std::str::from_utf8_unchecked(b) }
+}
+
+/// Cast a float array to [`GenericStringArray`], see [`write_float_trimmed`]
+pub(crate) fn cast_float_to_string<T, O>(array: &dyn Array) -> Result<ArrayRef, ArrowError>
+where
+    T: ArrowPrimitiveType,
+    T::Native: lexical_core::ToLexicalWithOptions<Options = lexical_core::WriteFloatOptions>,
+    O: OffsetSizeTrait,
+{
+    let array = array.as_primitive::<T>();
+    let mut builder = GenericStringBuilder::<O>::new();
+    let mut buffer = [0u8; lexical_core::BUFFER_SIZE];
+    for v in array {
+        match v {
+            Some(v) => builder.append_value(write_float_trimmed(v, &mut buffer)),
+            None => builder.append_null(),
+        }
+    }
+    Ok(Arc::new(builder.finish()))
+}
+
+/// Cast a float array to [`StringViewArray`], see [`write_float_trimmed`]
+pub(crate) fn cast_float_to_string_view<T>(array: &dyn Array) -> Result<ArrayRef, ArrowError>
+where
+    T: ArrowPrimitiveType,
+    T::Native: lexical_core::ToLexicalWithOptions<Options = lexical_core::WriteFloatOptions>,
+{
+    let array = array.as_primitive::<T>();
+    let mut builder = StringViewBuilder::with_capacity(array.len());
+    let mut buffer = [0u8; lexical_core::BUFFER_SIZE];
+    for v in array {
+        match v {
+            Some(v) => builder.append_value(write_float_trimmed(v, &mut buffer)),
+            None => builder.append_null(),
+        }
+    }
+    Ok(Arc::new(builder.finish()))
+}
+
 /// Parse UTF-8
 pub(crate) fn parse_string<P: Parser, O: OffsetSizeTrait>(
     array: &dyn Array,
