@@ -31,3 +31,29 @@ pub fn lexical_to_string<N: lexical_core::ToLexical>(n: N) -> String {
         String::from_utf8_unchecked(buf)
     }
 }
+
+/// Converts float type to a `String`
+pub fn float_lexical_to_string<
+    N: lexical_core::ToLexicalWithOptions<Options = lexical_core::WriteFloatOptions>,
+>(
+    n: N,
+) -> String {
+    let mut buf = Vec::<u8>::with_capacity(N::FORMATTED_SIZE_DECIMAL);
+    unsafe {
+        // JUSTIFICATION
+        //  Benefit
+        //      Allows using the faster serializer lexical core and convert to string
+        //  Soundness
+        //      Length of buf is set as written length afterwards. lexical_core
+        //      creates a valid string, so doesn't need to be checked.
+        let slice = std::slice::from_raw_parts_mut(buf.as_mut_ptr(), buf.capacity());
+        let options = lexical_core::WriteFloatOptions::builder()
+            .trim_floats(true)
+            .build()
+            .unwrap();
+        const FORMAT: u128 = lexical_core::format::POSTGRESQL;
+        let len = lexical_core::write_with_options::<_, FORMAT>(n, slice, &options).len();
+        buf.set_len(len);
+        String::from_utf8_unchecked(buf)
+    }
+}
