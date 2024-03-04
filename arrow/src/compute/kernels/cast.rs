@@ -49,8 +49,9 @@ use crate::datatypes::*;
 use crate::error::{ArrowError, Result};
 use crate::{array::*, compute::take};
 use crate::{
-    buffer::Buffer, util::display::array_value_to_string,
-    util::serialization::lexical_to_string,
+    buffer::Buffer,
+    util::display::array_value_to_string,
+    util::serialization::{float_lexical_to_string, lexical_to_string},
 };
 use num::{NumCast, ToPrimitive};
 
@@ -832,8 +833,8 @@ pub fn cast_with_options(
             Int16 => cast_numeric_to_string::<Int16Type, i32>(array),
             Int32 => cast_numeric_to_string::<Int32Type, i32>(array),
             Int64 => cast_numeric_to_string::<Int64Type, i32>(array),
-            Float32 => cast_numeric_to_string::<Float32Type, i32>(array),
-            Float64 => cast_numeric_to_string::<Float64Type, i32>(array),
+            Float32 => cast_float_to_string::<Float32Type, i32>(array),
+            Float64 => cast_float_to_string::<Float64Type, i32>(array),
             Timestamp(unit, _) => match unit {
                 TimeUnit::Nanosecond => {
                     cast_timestamp_to_string::<TimestampNanosecondType, i32>(array)
@@ -888,8 +889,8 @@ pub fn cast_with_options(
             Int16 => cast_numeric_to_string::<Int16Type, i64>(array),
             Int32 => cast_numeric_to_string::<Int32Type, i64>(array),
             Int64 => cast_numeric_to_string::<Int64Type, i64>(array),
-            Float32 => cast_numeric_to_string::<Float32Type, i64>(array),
-            Float64 => cast_numeric_to_string::<Float64Type, i64>(array),
+            Float32 => cast_float_to_string::<Float32Type, i64>(array),
+            Float64 => cast_float_to_string::<Float64Type, i64>(array),
             Timestamp(unit, _) => match unit {
                 TimeUnit::Nanosecond => {
                     cast_timestamp_to_string::<TimestampNanosecondType, i64>(array)
@@ -1589,6 +1590,36 @@ where
 {
     from.iter()
         .map(|maybe_value| maybe_value.map(lexical_to_string))
+        .collect()
+}
+
+/// Cast float types to Utf8
+fn cast_float_to_string<FROM, OffsetSize>(array: &ArrayRef) -> Result<ArrayRef>
+where
+    FROM: ArrowFloatNumericType,
+    FROM::Native:
+        lexical_core::ToLexicalWithOptions<Options = lexical_core::WriteFloatOptions>,
+    OffsetSize: StringOffsetSizeTrait,
+{
+    Ok(Arc::new(float_to_string_cast::<FROM, OffsetSize>(
+        array
+            .as_any()
+            .downcast_ref::<PrimitiveArray<FROM>>()
+            .unwrap(),
+    )))
+}
+
+fn float_to_string_cast<T, OffsetSize>(
+    from: &PrimitiveArray<T>,
+) -> GenericStringArray<OffsetSize>
+where
+    T: ArrowPrimitiveType + ArrowFloatNumericType,
+    T::Native:
+        lexical_core::ToLexicalWithOptions<Options = lexical_core::WriteFloatOptions>,
+    OffsetSize: StringOffsetSizeTrait,
+{
+    from.iter()
+        .map(|maybe_value| maybe_value.map(float_lexical_to_string))
         .collect()
 }
 
