@@ -488,6 +488,19 @@ where
     Ok(unary(array, |x| -x))
 }
 
+/// Perform `left ^ right` (pow) operation on two arrays. If either left or right value is null
+/// then the result is also null.
+pub fn powf<T>(
+    left: &PrimitiveArray<T>,
+    right: &PrimitiveArray<T>,
+) -> Result<PrimitiveArray<T>>
+where
+    T: datatypes::ArrowFloatNumericType,
+    T::Native: Pow<T::Native, Output = T::Native>,
+{
+    math_op(left, right, |a, b| a.pow(b))
+}
+
 /// Raise array with floating point values to the power of a scalar.
 pub fn powf_scalar<T>(
     array: &PrimitiveArray<T>,
@@ -1041,6 +1054,16 @@ mod tests {
         let actual = negate(&a).unwrap();
         let expected: Int64Array = (0..100).into_iter().map(|i| Some(-i)).collect();
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_primitive_array_powf() {
+        let a = Float64Array::from(vec![3.0, 25.0, -2.5]);
+        let b = Float64Array::from(vec![5.0, -1.5, 2.0]);
+        let c = powf(&a, &b).unwrap();
+        assert_eq!(243.0, c.value(0));
+        assert_eq!(0.008, c.value(1));
+        assert_eq!(6.25, c.value(2));
     }
 
     #[test]
