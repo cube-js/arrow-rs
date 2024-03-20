@@ -4964,6 +4964,47 @@ mod tests {
     }
 
     #[test]
+    fn test_cast_timestamp_string_to_date32_keeps_written_date() {
+        // As in PostgreSQL, an offset or timezone does not move the date to UTC
+        let array = StringArray::from(vec![
+            Some("2018-12-26 00:00:00"),
+            Some("2018-12-26T00:00:00Z"),
+            Some("2018-12-26 00:00:00+05:00"),
+            Some("2018-12-26 23:30:00-05:00"),
+            Some("2026-06-15 23:00:00 America/Los_Angeles"),
+            None,
+        ]);
+        let b = cast_with_options(&array, &DataType::Date32, &CastOptions::default()).unwrap();
+        let expected = Date32Array::from(vec![
+            Some(17891),
+            Some(17891),
+            Some(17891),
+            Some(17891),
+            Some(20619),
+            None,
+        ]);
+        assert_eq!(b.as_primitive::<Date32Type>(), &expected);
+
+        // The offset or timezone must still be valid
+        let strict = CastOptions {
+            safe: false,
+            ..Default::default()
+        };
+        for s in [
+            "2018-12-26 00:00:00+25:00",
+            "2018-12-26 00:00:00 Not/A_Zone",
+        ] {
+            let array = StringArray::from(vec![s]);
+            let b = cast_with_options(&array, &DataType::Date32, &CastOptions::default()).unwrap();
+            assert!(b.is_null(0), "{s}");
+            assert!(
+                cast_with_options(&array, &DataType::Date32, &strict).is_err(),
+                "{s}"
+            );
+        }
+    }
+
+    #[test]
     fn test_cast_string_with_large_date_to_date32() {
         let array = Arc::new(StringArray::from(vec![
             Some("+10999-12-31"),

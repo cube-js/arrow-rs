@@ -720,10 +720,10 @@ fn parse_date(string: &str) -> Option<NaiveDate> {
     }
 
     if string.len() > 10 {
-        // Try to parse as datetime and return just the date part
-        return string_to_datetime(&Utc, string)
-            .map(|dt| dt.date_naive())
-            .ok();
+        // Try to parse as datetime and return just the date part as written. Like
+        // PostgreSQL, an offset or timezone must be valid but does not move the date.
+        string_to_datetime(&Utc, string).ok()?;
+        return TimestampParser::new(string.as_bytes()).date();
     }
     let mut digits = [0; 10];
     let mut mask = 0;
