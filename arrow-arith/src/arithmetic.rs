@@ -27,6 +27,7 @@ use arrow_array::types::*;
 use arrow_array::*;
 use arrow_buffer::i256;
 use arrow_schema::*;
+use num_traits::Float;
 use std::cmp::min;
 use std::sync::Arc;
 
@@ -168,6 +169,34 @@ pub fn multiply_fixed_point(
         mul.as_i128()
     })?;
     product.with_precision_and_scale(precision, required_scale)
+}
+
+/// Perform `left ^ right` (pow) operation on two floating point arrays. If either left or
+/// right value is null then the result is also null.
+///
+/// ```
+/// # use arrow_array::Float64Array;
+/// # use arrow_arith::arithmetic::powf;
+/// let c = powf(&Float64Array::from(vec![2.0]), &Float64Array::from(vec![3.0])).unwrap();
+/// assert_eq!(c, Float64Array::from(vec![8.0]));
+/// ```
+///
+/// Integer arrays are rejected at compile time:
+///
+/// ```compile_fail
+/// # use arrow_array::UInt8Array;
+/// # use arrow_arith::arithmetic::powf;
+/// powf(&UInt8Array::from(vec![2]), &UInt8Array::from(vec![3])).unwrap();
+/// ```
+pub fn powf<T>(
+    left: &PrimitiveArray<T>,
+    right: &PrimitiveArray<T>,
+) -> Result<PrimitiveArray<T>, ArrowError>
+where
+    T: ArrowPrimitiveType,
+    T::Native: Float,
+{
+    binary(left, right, |a, b| a.powf(b))
 }
 
 /// Returns a function that divides a value by `div` and rounds the result half away from zero
@@ -384,5 +413,38 @@ mod tests {
             assert_eq!(multiply_fixed_point(&a, &b, 0).unwrap(), expected);
             assert_eq!(multiply_fixed_point_checked(&a, &b, 0).unwrap(), expected);
         }
+    }
+
+    #[test]
+    fn test_primitive_array_powf() {
+        let a = Float64Array::from(vec![3.0, 25.0, -2.5]);
+        let b = Float64Array::from(vec![5.0, -1.5, 2.0]);
+        let c = powf(&a, &b).unwrap();
+        assert_eq!(243.0, c.value(0));
+        assert_eq!(0.008, c.value(1));
+        assert_eq!(6.25, c.value(2));
+    }
+
+    #[test]
+    fn test_primitive_array_powf_nulls() {
+        let a = Float64Array::from(vec![Some(2.0), None, Some(4.0)]);
+        let b = Float64Array::from(vec![Some(3.0), Some(2.0), None]);
+        let c = powf(&a, &b).unwrap();
+        assert_eq!(c, Float64Array::from(vec![Some(8.0), None, None]));
+    }
+
+    #[test]
+    fn test_primitive_array_powf_f32() {
+        let a = Float32Array::from(vec![2.0, 9.0]);
+        let b = Float32Array::from(vec![10.0, 0.5]);
+        let c = powf(&a, &b).unwrap();
+        assert_eq!(c, Float32Array::from(vec![1024.0, 3.0]));
+    }
+
+    #[test]
+    fn test_primitive_array_powf_length_mismatch() {
+        let a = Float64Array::from(vec![1.0, 2.0]);
+        let b = Float64Array::from(vec![1.0]);
+        powf(&a, &b).unwrap_err();
     }
 }
