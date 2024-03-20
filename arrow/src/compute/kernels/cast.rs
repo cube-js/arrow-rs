@@ -1652,11 +1652,20 @@ fn parse_naive_date(
         }
     }
 
-    if let Some(d) = delimiter {
-        chrono::NaiveDate::parse_from_str(v, &format!("%Y{}%m{}%d", d, d))
-    } else {
-        chrono::NaiveDate::parse_from_str(v, "%Y%m%d")
-    }
+    if let Ok(result) = {
+        if let Some(d) = delimiter {
+            chrono::NaiveDate::parse_from_str(v, &format!("%Y{}%m{}%d", d, d))
+        } else {
+            chrono::NaiveDate::parse_from_str(v, "%Y%m%d")
+        }
+    } {
+        return Ok(result);
+    };
+
+    // Try to parse full timestamp, this is valid in Postgres
+    chrono::NaiveDate::parse_from_str(v, "%Y-%m-%dT%H:%M:%S%.fZ")
+        .or_else(|_| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d %H:%M:%S%.f"))
+        .or_else(|_| chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d %H:%M:%S"))
 }
 
 /// Casts generic string arrays to Date32Array
@@ -3132,11 +3141,13 @@ mod tests {
     fn test_cast_string_to_date32() {
         let a1 = Arc::new(StringArray::from(vec![
             Some("2018-12-25"),
+            Some("2018-12-26 00:00:00"),
             Some("Not a valid date"),
             None,
         ])) as ArrayRef;
         let a2 = Arc::new(LargeStringArray::from(vec![
             Some("2018-12-25"),
+            Some("2018-12-26 00:00:00"),
             Some("Not a valid date"),
             None,
         ])) as ArrayRef;
@@ -3144,8 +3155,9 @@ mod tests {
             let b = cast(array, &DataType::Date32).unwrap();
             let c = b.as_any().downcast_ref::<Date32Array>().unwrap();
             assert_eq!(17890, c.value(0));
-            assert!(c.is_null(1));
+            assert_eq!(17891, c.value(1));
             assert!(c.is_null(2));
+            assert!(c.is_null(3));
         }
     }
 
