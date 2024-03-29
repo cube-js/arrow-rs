@@ -5,6 +5,7 @@ dev/release/rat_exclude_files.txt
 arrow/test/data/*
 arrow/test/dependency/*
 .gitattributes
+rust-toolchain.toml
 **.gitignore
 .gitmodules
 Cargo.lock
