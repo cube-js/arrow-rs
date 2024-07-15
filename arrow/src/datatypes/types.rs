@@ -261,9 +261,10 @@ impl IntervalMonthDayNanoType {
         days: i32,
         nanos: i64,
     ) -> <IntervalMonthDayNanoType as ArrowPrimitiveType>::Native {
-        let m = (months as u128 & u32::MAX as u128) << 96;
-        let d = (days as u128 & u32::MAX as u128) << 64;
-        let n = nanos as u128;
+        // casts thru u32/u64 to avoid sign extension
+        let m = (months as u32 as u128) << 96;
+        let d = (days as u32 as u128) << 64;
+        let n = nanos as u64 as u128;
         (m | d | n) as <IntervalMonthDayNanoType as ArrowPrimitiveType>::Native
     }
 
@@ -275,9 +276,55 @@ impl IntervalMonthDayNanoType {
     pub fn to_parts(
         i: <IntervalMonthDayNanoType as ArrowPrimitiveType>::Native,
     ) -> (i32, i32, i64) {
-        let nanos = (i >> 64) as i64;
-        let days = (i >> 32) as i32;
-        let months = i as i32;
+        let i = i as u128;
+        let nanos = (i & (u64::MAX as u128)) as i64;
+        let days = ((i >> 64) & (u32::MAX as u128)) as i32;
+        let months = ((i >> 96) & (u32::MAX as u128)) as i32;
         (months, days, nanos)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{IntervalDayTimeType, IntervalMonthDayNanoType};
+
+    #[test]
+    fn interval_day_time_roundtrip() {
+        fn check(days: i32, millis: i32) {
+            let interval = IntervalDayTimeType::make_value(days, millis);
+            let parts = IntervalDayTimeType::to_parts(interval);
+            assert_eq!((days, millis), parts);
+        }
+
+        check(0, 0);
+
+        check(0, 1);
+        check(1, 0);
+        check(0, -1);
+        check(-1, 0);
+
+        check(1, 2);
+        check(-1, -2);
+    }
+
+    #[test]
+    fn interval_month_day_nano_roundtrip() {
+        fn check(months: i32, days: i32, nanos: i64) {
+            let interval = IntervalMonthDayNanoType::make_value(months, days, nanos);
+            let parts = IntervalMonthDayNanoType::to_parts(interval);
+            assert_eq!((months, days, nanos), parts);
+        }
+
+        check(0, 0, 0);
+
+        check(0, 0, 1);
+        check(0, 1, 0);
+        check(1, 0, 0);
+        check(0, 0, -1);
+        check(0, -1, 0);
+        check(-1, 0, 0);
+
+        check(1, 2, 3);
+        check(-1, -2, -3);
     }
 }
