@@ -18,6 +18,7 @@
 //! Contains implementations of the reader traits FileReader, RowGroupReader and PageReader
 //! Also contains implementations of the ChunkReader for files (with buffering) and byte arrays (RAM)
 
+use std::io::Cursor;
 use std::{convert::TryFrom, fs::File, io::Read, path::Path, sync::Arc};
 
 use parquet_format::{PageHeader, PageType};
@@ -27,6 +28,7 @@ use crate::basic::{Compression, Encoding, Type};
 use crate::column::page::{Page, PageReader};
 use crate::compression::{create_codec, Codec};
 use crate::errors::{ParquetError, Result};
+use crate::file::encryption::{decrypt_module, parquet_aad_suffix, ParquetEncryptionKey, RandomFileIdentifier, USUAL_ENCRYPTION_OVERHEAD};
 use crate::file::{footer, metadata::*, reader::*, statistics};
 use crate::record::reader::RowIter;
 use crate::record::Row;
@@ -36,6 +38,8 @@ use crate::util::{io::TryClone, memory::ByteBufferPtr};
 // export `SliceableCursor` and `FileSource` publically so clients can
 // re-use the logic in their own ParquetFileWriter wrappers
 pub use crate::util::{cursor::SliceableCursor, io::FileSource};
+
+use super::encryption::ParquetEncryptionConfig;
 
 // ----------------------------------------------------------------------
 // Implementations of traits facilitating the creation of a new reader
@@ -125,16 +129,18 @@ impl IntoIterator for SerializedFileReader<File> {
 pub struct SerializedFileReader<R: ChunkReader> {
     chunk_reader: Arc<R>,
     metadata: ParquetMetaData,
+    encryption_info: Option<(ParquetEncryptionKey, RandomFileIdentifier)>
 }
 
 impl<R: 'static + ChunkReader> SerializedFileReader<R> {
     /// Creates file reader from a Parquet file.
     /// Returns error if Parquet file does not exist or is corrupt.
     pub fn new(chunk_reader: R) -> Result<Self> {
-        let metadata = footer::parse_metadata(&chunk_reader)?;
+        let (metadata, _) = footer::parse_metadata(&chunk_reader, &None)?;
         Ok(Self {
             chunk_reader: Arc::new(chunk_reader),
             metadata,
+            encryption_info: None,
         })
     }
 
@@ -143,7 +149,31 @@ impl<R: 'static + ChunkReader> SerializedFileReader<R> {
         Self {
             chunk_reader: Arc::new(chunk_reader),
             metadata,
+            encryption_info: None,
         }
+    }
+
+    pub fn new_maybe_encrypted(chunk_reader: R, encryption_config: &Option<ParquetEncryptionConfig>) -> Result<Self> {
+        let (metadata, encryption_key) = footer::parse_metadata(&chunk_reader, encryption_config)?;
+        Self::new_with_metadata_maybe_encrypted(chunk_reader, metadata, &encryption_key)
+    }
+
+    /// Creates file reader from a Parquet file, using pre-read metadata.
+    pub fn new_with_metadata_maybe_encrypted(chunk_reader: R, metadata: ParquetMetaData, encryption_key: &Option<ParquetEncryptionKey>) -> Result<Self> {
+        let encryption_info: Option<_>;
+        if let Some(encryption_key) = encryption_key {
+            let random_file_identifier = metadata.file_metadata().random_file_identifier().ok_or_else(
+                || general_err!("Unsupported Parquet file: When encryption is used, FileMetaData must have a random_file_identifier")
+            )?;
+            encryption_info = Some((*encryption_key, random_file_identifier));
+        } else {
+            encryption_info = None;
+        }
+        Ok(Self {
+            chunk_reader: Arc::new(chunk_reader),
+            metadata,
+            encryption_info,
+        })
     }
 
     /// Filters row group metadata to only those row groups,
@@ -179,9 +209,14 @@ impl<R: 'static + ChunkReader> FileReader for SerializedFileReader<R> {
         let row_group_metadata = self.metadata.row_group(i);
         // Row groups should be processed sequentially.
         let f = Arc::clone(&self.chunk_reader);
+        // TODO: It seems lame that we have this limit in unencrypted mode.  And maybe we could error earlier.
+        let row_group_ordinal: i16 = i16::try_from(i)
+            .map_err(|_| general_err!("number of row groups cannot exceed {}", 1 << 15))?;
         Ok(Box::new(SerializedRowGroupReader::new(
             f,
             row_group_metadata,
+            self.encryption_info,
+            row_group_ordinal,
         )))
     }
 
@@ -194,14 +229,18 @@ impl<R: 'static + ChunkReader> FileReader for SerializedFileReader<R> {
 pub struct SerializedRowGroupReader<'a, R: ChunkReader> {
     chunk_reader: Arc<R>,
     metadata: &'a RowGroupMetaData,
+    encryption_info: Option<(ParquetEncryptionKey, RandomFileIdentifier)>,
+    row_group_ordinal: i16,
 }
 
 impl<'a, R: ChunkReader> SerializedRowGroupReader<'a, R> {
     /// Creates new row group reader from a file and row group metadata.
-    fn new(chunk_reader: Arc<R>, metadata: &'a RowGroupMetaData) -> Self {
+    fn new(chunk_reader: Arc<R>, metadata: &'a RowGroupMetaData, encryption_info: Option<(ParquetEncryptionKey, RandomFileIdentifier)>, row_group_ordinal: i16) -> Self {
         Self {
             chunk_reader,
             metadata,
+            encryption_info,
+            row_group_ordinal,
         }
     }
 }
@@ -220,10 +259,17 @@ impl<'a, R: 'static + ChunkReader> RowGroupReader for SerializedRowGroupReader<'
         let col = self.metadata.column(i);
         let (col_start, col_length) = col.byte_range();
         let file_chunk = self.chunk_reader.get_read(col_start, col_length as usize)?;
+        // TODO: It seems lame that we have this limit in unencrypted mode.  And maybe we could error earlier.
+        let column_ordinal = u16::try_from(i)
+            .map_err(|_| general_err!("number of columns cannot exceed {}", u16::MAX as u32 + 1))?;
         let page_reader = SerializedPageReader::new(
             file_chunk,
+            self.encryption_info,
+            self.row_group_ordinal,
+            column_ordinal,
             col.num_values(),
             col.compression(),
+            col.has_dictionary_page(),
             col.column_descr().physical_type(),
         )?;
         Ok(Box::new(page_reader))
@@ -239,6 +285,14 @@ pub struct SerializedPageReader<T: Read> {
     // The file source buffer which references exactly the bytes for the column trunk
     // to be read by this page reader.
     buf: T,
+
+    encryption_info: Option<(ParquetEncryptionKey, RandomFileIdentifier)>,
+    row_group_ordinal: i16,
+    column_ordinal: u16,
+
+    // Mutable: the page_ordinal of the next page read.  Initialized with None in the case we expect
+    // to start with a dictionary page, then gets incremented to Some(0) before the first data page.
+    page_ordinal: Option<u16>,
 
     // The compression codec for this column chunk. Only set for non-PLAIN codec.
     decompressor: Option<Box<dyn Codec>>,
@@ -257,13 +311,22 @@ impl<T: Read> SerializedPageReader<T> {
     /// Creates a new serialized page reader from file source.
     pub fn new(
         buf: T,
+        encryption_info: Option<(ParquetEncryptionKey, RandomFileIdentifier)>,
+        row_group_ordinal: i16,
+        column_ordinal: u16,
         total_num_values: i64,
         compression: Compression,
+        dictionary_enabled: bool,
         physical_type: Type,
     ) -> Result<Self> {
         let decompressor = create_codec(compression)?;
+        let page_ordinal = if dictionary_enabled { None } else { Some(0) };
         let result = Self {
             buf,
+            encryption_info,
+            row_group_ordinal,
+            column_ordinal,
+            page_ordinal,
             total_num_values,
             seen_num_values: 0,
             decompressor,
@@ -273,10 +336,21 @@ impl<T: Read> SerializedPageReader<T> {
     }
 
     /// Reads Page header from Thrift.
-    fn read_page_header(&mut self) -> Result<PageHeader> {
-        let mut prot = TCompactInputProtocol::new(&mut self.buf);
-        let page_header = PageHeader::read_from_in_protocol(&mut prot)?;
-        Ok(page_header)
+    fn read_page_header(&mut self, aad_header_module_type: u8, aad_page_ordinal: Option<u16>) -> Result<PageHeader> {
+        if let Some((encryption_key, random_file_identifier)) = &self.encryption_info {
+            let aad_suffix = parquet_aad_suffix(random_file_identifier, aad_header_module_type,
+                self.row_group_ordinal, self.column_ordinal, aad_page_ordinal);
+
+            let plaintext_cursor = decrypt_module("PageHeader", &mut self.buf, encryption_key, &aad_suffix)?;
+
+            let mut prot = TCompactInputProtocol::new(plaintext_cursor);
+            let page_header = PageHeader::read_from_in_protocol(&mut prot)?;
+            Ok(page_header)
+        } else {
+            let mut prot = TCompactInputProtocol::new(&mut self.buf);
+            let page_header = PageHeader::read_from_in_protocol(&mut prot)?;
+            Ok(page_header)
+        }
     }
 }
 
@@ -284,14 +358,47 @@ impl<T: Read> Iterator for SerializedPageReader<T> {
     type Item = Result<Page>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.get_next_page().transpose()
+        let ret = self.get_next_page().transpose();
+        ret
     }
 }
+
+pub const DATA_PAGE_MODULE_TYPE: u8 = 2;
+pub const DICTIONARY_PAGE_MODULE_TYPE: u8 = 3;
+pub const DATA_PAGE_HEADER_MODULE_TYPE: u8 = 4;
+pub const DICTIONARY_PAGE_HEADER_MODULE_TYPE: u8 = 5;
+// TODO: We (the existing Rust lib) write a ColumnChunk after the data pages.  Is this described in
+// the docs?  It never gets read -- in fact the ChunkReader, using total_compressed_size, emits
+// Read objects over intervals that don't contain it.  What do the other Parquet libs do?
+pub const COLUMNCHUNK_MODULE_TYPE: u8 = 255;
 
 impl<T: Read> PageReader for SerializedPageReader<T> {
     fn get_next_page(&mut self) -> Result<Option<Page>> {
         while self.seen_num_values < self.total_num_values {
-            let page_header = self.read_page_header()?;
+            let aad_page_ordinal = self.page_ordinal;
+            let aad_module_type: u8;
+            let aad_header_module_type: u8;
+            if aad_page_ordinal.is_some() {
+                // Data pages
+                aad_module_type = DATA_PAGE_MODULE_TYPE;
+                aad_header_module_type = DATA_PAGE_HEADER_MODULE_TYPE;
+            } else {
+                // The dictionary page
+                aad_module_type = DICTIONARY_PAGE_MODULE_TYPE;
+                aad_header_module_type = DICTIONARY_PAGE_HEADER_MODULE_TYPE;
+            }
+            let page_header = self.read_page_header(aad_header_module_type, aad_page_ordinal)?;
+
+            let mut cursor: Cursor<Vec<u8>>;
+            let reader: &mut dyn Read;
+            if let Some((encryption_key, random_file_identifier)) = &self.encryption_info {
+                let aad = parquet_aad_suffix(random_file_identifier, aad_module_type, self.row_group_ordinal,
+                    self.column_ordinal, aad_page_ordinal);
+                cursor = decrypt_module("Page data", &mut self.buf, encryption_key, &aad)?;
+                reader = &mut cursor;
+            } else {
+                reader = &mut self.buf;
+            }
 
             // When processing data page v2, depending on enabled compression for the
             // page, we should account for uncompressed data ('offset') of
@@ -310,11 +417,11 @@ impl<T: Read> PageReader for SerializedPageReader<T> {
                 can_decompress = header_v2.is_compressed.unwrap_or(true);
             }
 
-            let compressed_len = page_header.compressed_page_size as usize - offset;
+            let compressed_unencrypted_len = (page_header.compressed_page_size as usize) - (if self.encryption_info.is_some() { USUAL_ENCRYPTION_OVERHEAD } else { 0 }) - offset;
             let uncompressed_len = page_header.uncompressed_page_size as usize - offset;
             // We still need to read all bytes from buffered stream
-            let mut buffer = vec![0; offset + compressed_len];
-            self.buf.read_exact(&mut buffer)?;
+            let mut buffer = vec![0; offset + compressed_unencrypted_len];
+            reader.read_exact(&mut buffer)?;
 
             // TODO: page header could be huge because of statistics. We should set a
             // maximum page header size and abort if that is exceeded.
@@ -397,6 +504,12 @@ impl<T: Read> PageReader for SerializedPageReader<T> {
                     // For unknown page type (e.g., INDEX_PAGE), skip and read next.
                     continue;
                 }
+            };
+            self.page_ordinal = if let Some(n) = aad_page_ordinal {
+                let n_plus_1 = n.checked_add(1).ok_or_else(|| general_err!("Number of pages in row group exceeded {}", u16::MAX))?;
+                Some(n_plus_1)
+            } else {
+                Some(0)
             };
             return Ok(Some(result));
         }

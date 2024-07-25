@@ -102,9 +102,14 @@ pub mod reader;
 pub mod serialized_reader;
 pub mod statistics;
 pub mod writer;
+pub mod encryption;
 
 const FOOTER_SIZE: usize = 8;
 const PARQUET_MAGIC: [u8; 4] = [b'P', b'A', b'R', b'1'];
+/// Parquet uses PARE for encrypted footer mode, not PARC -- once we take care to check that we obey
+/// the Parquet encryption spec in exact detail, this can be PARE.
+const PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE: [u8; 4] = [b'P', b'A', b'R', b'C'];
+const PARQUET_MAGIC_UNSUPPORTED_PARE: [u8; 4] = [b'P', b'A', b'R', b'E'];
 
 /// The number of bytes read at the end of the parquet file on first read
 const DEFAULT_FOOTER_READ_SIZE: usize = 64 * 1024;

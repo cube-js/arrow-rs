@@ -30,8 +30,10 @@ edition = "2018"
 
 [dependencies]
 # update note: pin `parquet-format` to specific version until it does not break at minor
-# version, see ARROW-11187.
-parquet-format = "~2.6.1"
+# version, see ARROW-11187.  update: since this comment, it is now pinned at ~4.0.0 and
+# upstream arrow-rs parquet vendors it
+parquet-format = "~4.0.0"
+aes-gcm = "0.10.3"
 byteorder = "1"
 thrift = "0.13"
 snap = { version = "1.0", optional = true }
@@ -45,7 +47,9 @@ arrow = { path = "../arrow", version = "5.0.0", optional = true }
 base64 = { version = "0.13", optional = true }
 clap = { version = "2.33.3", optional = true }
 serde_json = { version = "1.0", features = ["preserve_order"], optional = true }
+serde = { version = "1.0.115", features = ["derive"] }
 rand = "0.8"
+sha3 = "0.10.8"
 
 [dev-dependencies]
 criterion = "0.3"

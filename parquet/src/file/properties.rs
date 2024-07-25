@@ -51,6 +51,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::basic::{Compression, Encoding};
+use crate::file::encryption::{ParquetEncryptionKeyInfo, RandomFileIdentifier};
 use crate::file::metadata::KeyValue;
 use crate::schema::types::ColumnPath;
 
@@ -102,6 +103,7 @@ pub struct WriterProperties {
     pub(crate) key_value_metadata: Option<Vec<KeyValue>>,
     default_column_properties: ColumnProperties,
     column_properties: HashMap<ColumnPath, ColumnProperties>,
+    pub(crate) encryption_info: Option<(ParquetEncryptionKeyInfo, RandomFileIdentifier)>,
 }
 
 impl WriterProperties {
@@ -228,6 +230,7 @@ pub struct WriterPropertiesBuilder {
     key_value_metadata: Option<Vec<KeyValue>>,
     default_column_properties: ColumnProperties,
     column_properties: HashMap<ColumnPath, ColumnProperties>,
+    encryption_info: Option<(ParquetEncryptionKeyInfo, RandomFileIdentifier)>,
 }
 
 impl WriterPropertiesBuilder {
@@ -243,6 +246,7 @@ impl WriterPropertiesBuilder {
             key_value_metadata: None,
             default_column_properties: ColumnProperties::new(),
             column_properties: HashMap::new(),
+            encryption_info: None,
         }
     }
 
@@ -258,6 +262,7 @@ impl WriterPropertiesBuilder {
             key_value_metadata: self.key_value_metadata,
             default_column_properties: self.default_column_properties,
             column_properties: self.column_properties,
+            encryption_info: self.encryption_info,
         }
     }
 
@@ -304,6 +309,12 @@ impl WriterPropertiesBuilder {
     /// Sets "key_value_metadata" property.
     pub fn set_key_value_metadata(mut self, value: Option<Vec<KeyValue>>) -> Self {
         self.key_value_metadata = value;
+        self
+    }
+
+    /// Sets "encryption key" property.
+    pub fn set_encryption_info(mut self, value: Option<(ParquetEncryptionKeyInfo, RandomFileIdentifier)>) -> Self {
+        self.encryption_info = value;
         self
     }
 

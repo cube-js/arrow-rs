@@ -139,11 +139,14 @@ impl CompressedPage {
         self.uncompressed_size
     }
 
-    /// Returns compressed size in bytes.
+    /// Returns compressed size (but not encrypted size) in bytes.
     ///
-    /// Note that it is assumed that buffer is compressed, but it may not be. In this
-    /// case compressed size will be equal to uncompressed size.
-    pub fn compressed_size(&self) -> usize {
+    /// Note that it is assumed that buffer is compressed, but it may not be. In this case
+    /// compressed size will be equal to uncompressed size.
+    ///
+    /// Other so-called "(total_)?compressed_size" fields include encryption overhead, when
+    /// applicable, which this does not.
+    pub fn compressed_unencrypted_size(&self) -> usize {
         self.compressed_page.buffer().len()
     }
 
@@ -206,7 +209,7 @@ pub trait PageWriter {
     ///
     /// This method is called for every compressed page we write into underlying buffer,
     /// either data page or dictionary page.
-    fn write_page(&mut self, page: CompressedPage) -> Result<PageWriteSpec>;
+    fn write_page(&mut self, page: CompressedPage, aad_page_ordinal: Option<u16>) -> Result<PageWriteSpec>;
 
     /// Writes column chunk metadata into the output stream/sink.
     ///
@@ -299,7 +302,7 @@ mod tests {
 
         assert_eq!(cpage.page_type(), PageType::DATA_PAGE);
         assert_eq!(cpage.uncompressed_size(), 5);
-        assert_eq!(cpage.compressed_size(), 3);
+        assert_eq!(cpage.compressed_unencrypted_size(), 3);
         assert_eq!(cpage.num_values(), 10);
         assert_eq!(cpage.encoding(), Encoding::PLAIN);
         assert_eq!(cpage.data(), &[0, 1, 2]);
