@@ -45,6 +45,8 @@ use crate::schema::types::{
     Type as SchemaType,
 };
 
+use crate::file::encryption::RandomFileIdentifier;
+
 /// Global Parquet metadata.
 #[derive(Debug, Clone)]
 pub struct ParquetMetaData {
@@ -113,6 +115,7 @@ pub struct FileMetaData {
     key_value_metadata: Option<Vec<KeyValue>>,
     schema_descr: SchemaDescPtr,
     column_orders: Option<Vec<ColumnOrder>>,
+    random_file_identifier: Option<RandomFileIdentifier>,
 }
 
 impl FileMetaData {
@@ -124,6 +127,7 @@ impl FileMetaData {
         key_value_metadata: Option<Vec<KeyValue>>,
         schema_descr: SchemaDescPtr,
         column_orders: Option<Vec<ColumnOrder>>,
+        random_file_identifier: Option<RandomFileIdentifier>,
     ) -> Self {
         FileMetaData {
             version,
@@ -132,6 +136,7 @@ impl FileMetaData {
             key_value_metadata,
             schema_descr,
             column_orders,
+            random_file_identifier,
         }
     }
 
@@ -196,6 +201,10 @@ impl FileMetaData {
             .map(|data| data[i])
             .unwrap_or(ColumnOrder::UNDEFINED)
     }
+
+    pub fn random_file_identifier(&self) -> &Option<RandomFileIdentifier> {
+        &self.random_file_identifier
+    }
 }
 
 /// Reference counted pointer for [`RowGroupMetaData`].
@@ -208,12 +217,14 @@ pub struct RowGroupMetaData {
     num_rows: i64,
     total_byte_size: i64,
     schema_descr: SchemaDescPtr,
+    /// Ordinal position of this row group in file
+    ordinal: Option<i16>,
 }
 
 impl RowGroupMetaData {
     /// Returns builer for row group metadata.
-    pub fn builder(schema_descr: SchemaDescPtr) -> RowGroupMetaDataBuilder {
-        RowGroupMetaDataBuilder::new(schema_descr)
+    pub fn builder(schema_descr: SchemaDescPtr, ordinal: i16) -> RowGroupMetaDataBuilder {
+        RowGroupMetaDataBuilder::new(schema_descr, ordinal)
     }
 
     /// Number of columns in this row group.
@@ -269,21 +280,33 @@ impl RowGroupMetaData {
             let cc = ColumnChunkMetaData::from_thrift(d.clone(), c)?;
             columns.push(cc);
         }
+        // Notably, the function to_thrift, below, doesn't write these fields, and RowGroupMetadata doesn't have them.
+        if rg.file_offset.is_some() {
+            return Err(ParquetError::NYI("Parsing RowGroup file_offset fields is not yet implemented".to_string()));
+        }
+        if rg.total_compressed_size.is_some() {
+            return Err(ParquetError::NYI("Parsing RowGroup total_compressed_size fields is not yet implemented".to_string()));
+        }
         Ok(RowGroupMetaData {
             columns,
             num_rows,
             total_byte_size,
             schema_descr,
+            ordinal: rg.ordinal,
         })
     }
 
     /// Method to convert to Thrift.
     pub fn to_thrift(&self) -> RowGroup {
+        // TODO: Understand file_offset and total_compressed_size fields.
         RowGroup {
             columns: self.columns().iter().map(|v| v.to_thrift()).collect(),
             total_byte_size: self.total_byte_size,
             num_rows: self.num_rows,
             sorting_columns: None,
+            file_offset: None,
+            total_compressed_size: None,
+            ordinal: self.ordinal,
         }
     }
 }
@@ -294,16 +317,18 @@ pub struct RowGroupMetaDataBuilder {
     schema_descr: SchemaDescPtr,
     num_rows: i64,
     total_byte_size: i64,
+    ordinal: Option<i16>,
 }
 
 impl RowGroupMetaDataBuilder {
     /// Creates new builder from schema descriptor.
-    fn new(schema_descr: SchemaDescPtr) -> Self {
+    fn new(schema_descr: SchemaDescPtr, ordinal: i16) -> Self {
         Self {
             columns: Vec::with_capacity(schema_descr.num_columns()),
             schema_descr,
             num_rows: 0,
             total_byte_size: 0,
+            ordinal: Some(ordinal),
         }
     }
 
@@ -325,6 +350,12 @@ impl RowGroupMetaDataBuilder {
         self
     }
 
+    /// Sets ordinal for this row group.
+    pub fn set_ordinal(mut self, value: i16) -> Self {
+        self.ordinal = Some(value);
+        self
+    }
+
     /// Builds row group metadata.
     pub fn build(self) -> Result<RowGroupMetaData> {
         if self.schema_descr.num_columns() != self.columns.len() {
@@ -340,6 +371,7 @@ impl RowGroupMetaDataBuilder {
             num_rows: self.num_rows,
             total_byte_size: self.total_byte_size,
             schema_descr: self.schema_descr,
+            ordinal: self.ordinal,
         })
     }
 }
@@ -497,6 +529,9 @@ impl ColumnChunkMetaData {
         let index_page_offset = col_metadata.index_page_offset;
         let dictionary_page_offset = col_metadata.dictionary_page_offset;
         let statistics = statistics::from_thrift(column_type, col_metadata.statistics);
+        if col_metadata.bloom_filter_offset.is_some() {
+            return Err(ParquetError::NYI("Parsing ColumnMetaData bloom_filter_offset fields is not yet implemented".to_string()))
+        }
         let result = ColumnChunkMetaData {
             column_type,
             column_path,
@@ -532,6 +567,7 @@ impl ColumnChunkMetaData {
             dictionary_page_offset: self.dictionary_page_offset,
             statistics: statistics::to_thrift(self.statistics.as_ref()),
             encoding_stats: None,
+            bloom_filter_offset: None,
         };
 
         ColumnChunk {
@@ -542,6 +578,8 @@ impl ColumnChunkMetaData {
             offset_index_length: None,
             column_index_offset: None,
             column_index_length: None,
+            crypto_metadata: None,
+            encrypted_column_metadata: None,
         }
     }
 }
@@ -672,6 +710,8 @@ impl ColumnChunkMetaDataBuilder {
 mod tests {
     use super::*;
 
+    const TEST_ROW_GROUP_ORDINAL: i16 = 124;
+
     #[test]
     fn test_row_group_metadata_thrift_conversion() {
         let schema_descr = get_test_schema_descr();
@@ -681,7 +721,7 @@ mod tests {
             let column = ColumnChunkMetaData::builder(ptr.clone()).build().unwrap();
             columns.push(column);
         }
-        let row_group_meta = RowGroupMetaData::builder(schema_descr.clone())
+        let row_group_meta = RowGroupMetaData::builder(schema_descr.clone(), TEST_ROW_GROUP_ORDINAL)
             .set_num_rows(1000)
             .set_total_byte_size(2000)
             .set_column_metadata(columns)
@@ -701,7 +741,7 @@ mod tests {
     fn test_row_group_metadata_thrift_conversion_empty() {
         let schema_descr = get_test_schema_descr();
 
-        let row_group_meta = RowGroupMetaData::builder(schema_descr).build();
+        let row_group_meta = RowGroupMetaData::builder(schema_descr, TEST_ROW_GROUP_ORDINAL).build();
 
         assert!(row_group_meta.is_err());
         if let Err(e) = row_group_meta {
@@ -769,7 +809,7 @@ mod tests {
                 .unwrap();
             columns.push(column);
         }
-        let row_group_meta = RowGroupMetaData::builder(schema_descr)
+        let row_group_meta = RowGroupMetaData::builder(schema_descr, TEST_ROW_GROUP_ORDINAL)
             .set_num_rows(1000)
             .set_column_metadata(columns)
             .build()
