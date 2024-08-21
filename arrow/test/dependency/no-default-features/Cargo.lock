@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "arrow"
-version = "11.1.0"
+version = "13.0.0"
 dependencies = [
  "bitflags",
  "chrono",
