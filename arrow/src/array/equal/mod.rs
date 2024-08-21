@@ -622,24 +622,22 @@ mod tests {
 
     #[test]
     fn test_list_equal() {
-        let a = create_list_array(&[Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
-        let b = create_list_array(&[Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
+        let a = create_list_array([Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
+        let b = create_list_array([Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
         test_equal(&a, &b, true);
 
-        let b = create_list_array(&[Some(&[1, 2, 3]), Some(&[4, 5, 7])]);
+        let b = create_list_array([Some(&[1, 2, 3]), Some(&[4, 5, 7])]);
         test_equal(&a, &b, false);
     }
 
     // Test the case where null_count > 0
     #[test]
     fn test_list_null() {
-        let a =
-            create_list_array(&[Some(&[1, 2]), None, None, Some(&[3, 4]), None, None]);
-        let b =
-            create_list_array(&[Some(&[1, 2]), None, None, Some(&[3, 4]), None, None]);
+        let a = create_list_array([Some(&[1, 2]), None, None, Some(&[3, 4]), None, None]);
+        let b = create_list_array([Some(&[1, 2]), None, None, Some(&[3, 4]), None, None]);
         test_equal(&a, &b, true);
 
-        let b = create_list_array(&[
+        let b = create_list_array([
             Some(&[1, 2]),
             None,
             Some(&[5, 6]),
@@ -649,8 +647,7 @@ mod tests {
         ]);
         test_equal(&a, &b, false);
 
-        let b =
-            create_list_array(&[Some(&[1, 2]), None, None, Some(&[3, 5]), None, None]);
+        let b = create_list_array([Some(&[1, 2]), None, None, Some(&[3, 5]), None, None]);
         test_equal(&a, &b, false);
 
         // a list where the nullness of values is determined by the list's bitmap
@@ -694,10 +691,8 @@ mod tests {
     // Test the case where offset != 0
     #[test]
     fn test_list_offsets() {
-        let a =
-            create_list_array(&[Some(&[1, 2]), None, None, Some(&[3, 4]), None, None]);
-        let b =
-            create_list_array(&[Some(&[1, 2]), None, None, Some(&[3, 5]), None, None]);
+        let a = create_list_array([Some(&[1, 2]), None, None, Some(&[3, 4]), None, None]);
+        let b = create_list_array([Some(&[1, 2]), None, None, Some(&[3, 5]), None, None]);
 
         let a_slice = a.slice(0, 3);
         let b_slice = b.slice(0, 3);
@@ -729,32 +724,32 @@ mod tests {
 
     #[test]
     fn test_fixed_size_binary_equal() {
-        let a = create_fixed_size_binary_array(&[Some(b"hello"), Some(b"world")]);
-        let b = create_fixed_size_binary_array(&[Some(b"hello"), Some(b"world")]);
+        let a = create_fixed_size_binary_array([Some(b"hello"), Some(b"world")]);
+        let b = create_fixed_size_binary_array([Some(b"hello"), Some(b"world")]);
         test_equal(&a, &b, true);
 
-        let b = create_fixed_size_binary_array(&[Some(b"hello"), Some(b"arrow")]);
+        let b = create_fixed_size_binary_array([Some(b"hello"), Some(b"arrow")]);
         test_equal(&a, &b, false);
     }
 
     // Test the case where null_count > 0
     #[test]
     fn test_fixed_size_binary_null() {
-        let a = create_fixed_size_binary_array(&[Some(b"hello"), None, Some(b"world")]);
-        let b = create_fixed_size_binary_array(&[Some(b"hello"), None, Some(b"world")]);
+        let a = create_fixed_size_binary_array([Some(b"hello"), None, Some(b"world")]);
+        let b = create_fixed_size_binary_array([Some(b"hello"), None, Some(b"world")]);
         test_equal(&a, &b, true);
 
-        let b = create_fixed_size_binary_array(&[Some(b"hello"), Some(b"world"), None]);
+        let b = create_fixed_size_binary_array([Some(b"hello"), Some(b"world"), None]);
         test_equal(&a, &b, false);
 
-        let b = create_fixed_size_binary_array(&[Some(b"hello"), None, Some(b"arrow")]);
+        let b = create_fixed_size_binary_array([Some(b"hello"), None, Some(b"arrow")]);
         test_equal(&a, &b, false);
     }
 
     #[test]
     fn test_fixed_size_binary_offsets() {
         // Test the case where offset != 0
-        let a = create_fixed_size_binary_array(&[
+        let a = create_fixed_size_binary_array([
             Some(b"hello"),
             None,
             None,
@@ -762,7 +757,7 @@ mod tests {
             None,
             None,
         ]);
-        let b = create_fixed_size_binary_array(&[
+        let b = create_fixed_size_binary_array([
             Some(b"hello"),
             None,
             None,
@@ -896,18 +891,18 @@ mod tests {
 
     #[test]
     fn test_fixed_size_list_equal() {
-        let a = create_fixed_size_list_array(&[Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
-        let b = create_fixed_size_list_array(&[Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
+        let a = create_fixed_size_list_array([Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
+        let b = create_fixed_size_list_array([Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
         test_equal(&a, &b, true);
 
-        let b = create_fixed_size_list_array(&[Some(&[1, 2, 3]), Some(&[4, 5, 7])]);
+        let b = create_fixed_size_list_array([Some(&[1, 2, 3]), Some(&[4, 5, 7])]);
         test_equal(&a, &b, false);
     }
 
     // Test the case where null_count > 0
     #[test]
     fn test_fixed_list_null() {
-        let a = create_fixed_size_list_array(&[
+        let a = create_fixed_size_list_array([
             Some(&[1, 2, 3]),
             None,
             None,
@@ -915,7 +910,7 @@ mod tests {
             None,
             None,
         ]);
-        let b = create_fixed_size_list_array(&[
+        let b = create_fixed_size_list_array([
             Some(&[1, 2, 3]),
             None,
             None,
@@ -925,7 +920,7 @@ mod tests {
         ]);
         test_equal(&a, &b, true);
 
-        let b = create_fixed_size_list_array(&[
+        let b = create_fixed_size_list_array([
             Some(&[1, 2, 3]),
             None,
             Some(&[7, 8, 9]),
@@ -935,7 +930,7 @@ mod tests {
         ]);
         test_equal(&a, &b, false);
 
-        let b = create_fixed_size_list_array(&[
+        let b = create_fixed_size_list_array([
             Some(&[1, 2, 3]),
             None,
             None,
@@ -945,7 +940,7 @@ mod tests {
         ]);
         test_equal(&a, &b, false);
 
-        let b = create_fixed_size_list_array(&[None, Some(&[4, 5, 6]), None, None]);
+        let b = create_fixed_size_list_array([None, Some(&[4, 5, 6]), None, None]);
 
         test_equal(&a.slice(2, 4), &b, true);
         test_equal(&a.slice(3, 3), &b.slice(1, 3), true);
@@ -954,7 +949,7 @@ mod tests {
     #[test]
     fn test_fixed_list_offsets() {
         // Test the case where offset != 0
-        let a = create_fixed_size_list_array(&[
+        let a = create_fixed_size_list_array([
             Some(&[1, 2, 3]),
             None,
             None,
@@ -962,7 +957,7 @@ mod tests {
             None,
             None,
         ]);
-        let b = create_fixed_size_list_array(&[
+        let b = create_fixed_size_list_array([
             Some(&[1, 2, 3]),
             None,
             None,

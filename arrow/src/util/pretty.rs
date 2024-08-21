@@ -65,7 +65,7 @@ fn create_table(results: &[RecordBatch]) -> Result<Table> {
 
     let mut header = Vec::new();
     for field in schema.fields() {
-        header.push(Cell::new(&field.name()));
+        header.push(Cell::new(field.name()));
     }
     table.set_header(header);
 
@@ -319,9 +319,9 @@ mod tests {
 
         let mut builder = FixedSizeBinaryBuilder::new(3, 3);
 
-        builder.append_value(&[1, 2, 3]).unwrap();
+        builder.append_value([1, 2, 3]).unwrap();
         builder.append_null().unwrap();
-        builder.append_value(&[7, 8, 9]).unwrap();
+        builder.append_value([7, 8, 9]).unwrap();
 
         let array = Arc::new(builder.finish());
 

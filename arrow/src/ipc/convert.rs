@@ -413,7 +413,7 @@ pub(crate) fn build_field<'a>(
 /// Get the IPC type of a data type
 pub(crate) fn get_fb_field_type<'a>(
     data_type: &DataType,
-    is_nullable: bool,
+    _is_nullable: bool,
     fbb: &mut FlatBufferBuilder<'a>,
 ) -> FBFieldType<'a> {
     // some IPC implementations expect an empty list for child data, instead of a null value.
@@ -653,7 +653,7 @@ pub(crate) fn get_fb_field_type<'a>(
             // In this library, the dictionary "type" is a logical construct. Here we
             // pass through to the value type, as we've already captured the index
             // type in the DictionaryEncoding metadata in the parent field
-            get_fb_field_type(value_type, is_nullable, fbb)
+            get_fb_field_type(value_type, _is_nullable, fbb)
         }
         Decimal(precision, scale) => {
             let mut builder = ipc::DecimalBuilder::new(fbb);

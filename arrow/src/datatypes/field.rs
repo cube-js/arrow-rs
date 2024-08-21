@@ -121,6 +121,7 @@ impl Field {
         collected_fields
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn _fields<'a>(&'a self, dt: &'a DataType) -> Vec<&Field> {
         let mut collected_fields = vec![];
 

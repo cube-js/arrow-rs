@@ -1669,7 +1669,7 @@ mod tests {
             let actual = result.unwrap_err().to_string();
 
             assert!(
-                actual.contains(&expected),
+                actual.contains(expected),
                 "actual: '{}', expected: '{}'",
                 actual,
                 expected

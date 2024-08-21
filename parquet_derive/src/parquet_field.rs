@@ -375,6 +375,7 @@ impl Type {
         self.leaf_type_recursive_helper(self, None)
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn leaf_type_recursive_helper<'a>(
         &'a self,
         ty: &'a Type,

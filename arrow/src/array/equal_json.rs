@@ -548,7 +548,7 @@ mod tests {
         // Test equal case
         let arrow_array = create_list_array(
             &mut ListBuilder::new(Int32Builder::new(10)),
-            &[Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
+            [Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
         )
         .unwrap();
         let json_array: Value = serde_json::from_str(
@@ -567,7 +567,7 @@ mod tests {
         // Test unequal case
         let arrow_array = create_list_array(
             &mut ListBuilder::new(Int32Builder::new(10)),
-            &[Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
+            [Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
         )
         .unwrap();
         let json_array: Value = serde_json::from_str(
@@ -586,7 +586,7 @@ mod tests {
         // Test incorrect type case
         let arrow_array = create_list_array(
             &mut ListBuilder::new(Int32Builder::new(10)),
-            &[Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
+            [Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
         )
         .unwrap();
         let json_array: Value = serde_json::from_str(
@@ -606,7 +606,7 @@ mod tests {
         // Test equal case
         let arrow_array = create_fixed_size_list_array(
             &mut FixedSizeListBuilder::new(Int32Builder::new(10), 3),
-            &[Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
+            [Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
         )
         .unwrap();
         let json_array: Value = serde_json::from_str(
@@ -627,7 +627,7 @@ mod tests {
         // Test unequal case
         let arrow_array = create_fixed_size_list_array(
             &mut FixedSizeListBuilder::new(Int32Builder::new(10), 3),
-            &[Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
+            [Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
         )
         .unwrap();
         let json_array: Value = serde_json::from_str(
@@ -646,7 +646,7 @@ mod tests {
         // Test incorrect type case
         let arrow_array = create_fixed_size_list_array(
             &mut FixedSizeListBuilder::new(Int32Builder::new(10), 3),
-            &[Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
+            [Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
         )
         .unwrap();
         let json_array: Value = serde_json::from_str(
