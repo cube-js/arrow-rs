@@ -2,7 +2,7 @@
 
 ///
 /// The request that a client provides to a server on handshake.
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HandshakeRequest {
     ///
     /// A defined protocol version
@@ -13,7 +13,7 @@ pub struct HandshakeRequest {
     #[prost(bytes="vec", tag="2")]
     pub payload: ::prost::alloc::vec::Vec<u8>,
 }
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HandshakeResponse {
     ///
     /// A defined protocol version
@@ -26,20 +26,20 @@ pub struct HandshakeResponse {
 }
 ///
 /// A message for doing simple auth.
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BasicAuth {
     #[prost(string, tag="2")]
     pub username: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub password: ::prost::alloc::string::String,
 }
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Empty {
 }
 ///
 /// Describes an available action, including both the name used for execution
 /// along with a short description of the purpose of the action.
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ActionType {
     #[prost(string, tag="1")]
     pub r#type: ::prost::alloc::string::String,
@@ -49,14 +49,14 @@ pub struct ActionType {
 ///
 /// A service specific expression that can be used to return a limited set
 /// of available Arrow Flight streams.
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Criteria {
     #[prost(bytes="vec", tag="1")]
     pub expression: ::prost::alloc::vec::Vec<u8>,
 }
 ///
 /// An opaque action specific for the service.
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Action {
     #[prost(string, tag="1")]
     pub r#type: ::prost::alloc::string::String,
@@ -65,14 +65,14 @@ pub struct Action {
 }
 ///
 /// An opaque result returned after executing an action.
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Result {
     #[prost(bytes="vec", tag="1")]
     pub body: ::prost::alloc::vec::Vec<u8>,
 }
 ///
 /// Wrap the result of a getSchema call
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SchemaResult {
     /// schema of the dataset as described in Schema.fbs::Schema.
     #[prost(bytes="vec", tag="1")]
@@ -81,7 +81,7 @@ pub struct SchemaResult {
 ///
 /// The name or tag for a Flight. May be used as a way to retrieve or generate
 /// a flight or be used to expose a set of previously defined flights.
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FlightDescriptor {
     #[prost(enumeration="flight_descriptor::DescriptorType", tag="1")]
     pub r#type: i32,
@@ -118,7 +118,7 @@ pub mod flight_descriptor {
 ///
 /// The access coordinates for retrieval of a dataset. With a FlightInfo, a
 /// consumer is able to determine how to retrieve a dataset.
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FlightInfo {
     /// schema of the dataset as described in Schema.fbs::Schema.
     #[prost(bytes="vec", tag="1")]
@@ -140,7 +140,7 @@ pub struct FlightInfo {
 }
 ///
 /// A particular stream or split associated with a flight.
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FlightEndpoint {
     ///
     /// Token used to retrieve this stream.
@@ -156,7 +156,7 @@ pub struct FlightEndpoint {
 ///
 /// A location where a Flight service will accept retrieval of a particular
 /// stream given a ticket.
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Location {
     #[prost(string, tag="1")]
     pub uri: ::prost::alloc::string::String,
@@ -164,14 +164,14 @@ pub struct Location {
 ///
 /// An opaque identifier that the service can use to retrieve a particular
 /// portion of a stream.
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Ticket {
     #[prost(bytes="vec", tag="1")]
     pub ticket: ::prost::alloc::vec::Vec<u8>,
 }
 ///
 /// A batch of Arrow data as part of a stream of batches.
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FlightData {
     ///
     /// The descriptor of the data. This is only relevant when a client is
@@ -196,7 +196,7 @@ pub struct FlightData {
 }
 ///*
 /// The response message associated with the submission of a DoPut.
-#[derive(Clone, PartialEq, Eq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PutResult {
     #[prost(bytes="vec", tag="1")]
     pub app_metadata: ::prost::alloc::vec::Vec<u8>,
@@ -229,7 +229,7 @@ pub mod flight_service_client {
     where
         T: tonic::client::GrpcService<tonic::body::BoxBody>,
         T::Error: Into<StdError>,
-        T::ResponseBody: Default + Body<Data = Bytes> + Send + 'static,
+        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
         <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     {
         pub fn new(inner: T) -> Self {
@@ -242,6 +242,7 @@ pub mod flight_service_client {
         ) -> FlightServiceClient<InterceptedService<T, F>>
         where
             F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
             T: tonic::codegen::Service<
                 http::Request<tonic::body::BoxBody>,
                 Response = http::Response<
@@ -278,9 +279,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = super::HandshakeRequest>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::HandshakeResponse>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::HandshakeResponse>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -307,9 +308,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::Criteria>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::FlightInfo>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::FlightInfo>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -388,9 +389,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::Ticket>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::FlightData>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::FlightData>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -417,9 +418,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = super::FlightData>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::PutResult>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::PutResult>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -445,9 +446,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = super::FlightData>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::FlightData>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::FlightData>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -474,9 +475,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::Action>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::Result>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::Result>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -500,9 +501,9 @@ pub mod flight_service_client {
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
         ) -> Result<
-                tonic::Response<tonic::codec::Streaming<super::ActionType>>,
-                tonic::Status,
-            > {
+            tonic::Response<tonic::codec::Streaming<super::ActionType>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
