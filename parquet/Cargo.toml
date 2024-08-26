@@ -80,3 +80,7 @@ harness = false
 [[bench]]
 name = "arrow_array_reader"
 harness = false
+
+[lints.clippy]
+# Can drop this after rebase on commit 55d6073 "Require Send+Sync bounds for Allocation trait (#1945)", first released in 18.0.0
+arc_with_non_send_sync = "allow"
