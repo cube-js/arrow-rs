@@ -660,6 +660,7 @@ impl ParquetTypeConverter<'_> {
         }
     }
 
+    #[allow(clippy::wrong_self_convention)]
     fn from_int32(&self) -> Result<DataType> {
         match (
             self.schema.get_basic_info().logical_type(),
@@ -705,6 +706,7 @@ impl ParquetTypeConverter<'_> {
         }
     }
 
+    #[allow(clippy::wrong_self_convention)]
     fn from_int96(&self) -> Result<DataType> {
         match (
             self.schema.get_basic_info().logical_type(),
@@ -735,6 +737,7 @@ impl ParquetTypeConverter<'_> {
         }
     }
 
+    #[allow(clippy::wrong_self_convention)]
     fn from_int64(&self) -> Result<DataType> {
         match (
             self.schema.get_basic_info().logical_type(),
@@ -795,6 +798,7 @@ impl ParquetTypeConverter<'_> {
         }
     }
 
+    #[allow(clippy::wrong_self_convention)]
     fn from_fixed_len_byte_array(&self) -> Result<DataType> {
         match (
             self.schema.get_basic_info().logical_type(),
@@ -833,6 +837,7 @@ impl ParquetTypeConverter<'_> {
         )
     }
 
+    #[allow(clippy::wrong_self_convention)]
     fn from_byte_array(&self) -> Result<DataType> {
         match (self.schema.get_basic_info().logical_type(), self.schema.get_basic_info().converted_type()) {
             (Some(LogicalType::STRING(_)), _) => Ok(DataType::Utf8),
