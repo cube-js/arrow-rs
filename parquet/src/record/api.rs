@@ -777,6 +777,7 @@ impl fmt::Display for Field {
 #[inline]
 fn convert_date_to_string(value: u32) -> String {
     static NUM_SECONDS_IN_DAY: i64 = 60 * 60 * 24;
+    #[allow(deprecated)]
     let dt = Utc.timestamp(value as i64 * NUM_SECONDS_IN_DAY, 0).date();
     format!("{}", dt.format("%Y-%m-%d %:z"))
 }
@@ -786,6 +787,7 @@ fn convert_date_to_string(value: u32) -> String {
 /// Datetime is displayed in local timezone.
 #[inline]
 fn convert_timestamp_millis_to_string(value: u64) -> String {
+    #[allow(deprecated)]
     let dt = Utc.timestamp((value / 1000) as i64, 0);
     format!("{}", dt.format("%Y-%m-%d %H:%M:%S %:z"))
 }
@@ -1049,6 +1051,7 @@ mod tests {
     #[test]
     fn test_convert_date_to_string() {
         fn check_date_conversion(y: u32, m: u32, d: u32) {
+            #[allow(deprecated)]
             let datetime = chrono::NaiveDate::from_ymd(y as i32, m, d).and_hms(0, 0, 0);
             let dt = Utc.from_utc_datetime(&datetime);
             let res = convert_date_to_string((dt.timestamp() / 60 / 60 / 24) as u32);
@@ -1066,6 +1069,7 @@ mod tests {
     #[test]
     fn test_convert_timestamp_to_string() {
         fn check_datetime_conversion(y: u32, m: u32, d: u32, h: u32, mi: u32, s: u32) {
+            #[allow(deprecated)]
             let datetime = chrono::NaiveDate::from_ymd(y as i32, m, d).and_hms(h, mi, s);
             let dt = Utc.from_utc_datetime(&datetime);
             let res = convert_timestamp_millis_to_string(dt.timestamp_millis() as u64);

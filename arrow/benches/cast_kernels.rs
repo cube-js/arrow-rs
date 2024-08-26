@@ -51,6 +51,7 @@ fn build_utf8_date_array(size: usize, with_nulls: bool) -> ArrayRef {
         if with_nulls && rng.gen::<f32>() > 0.8 {
             builder.append_null().unwrap();
         } else {
+            #[allow(deprecated)]
             let string = NaiveDate::from_num_days_from_ce(rng.sample(range))
                 .format("%Y-%m-%d")
                 .to_string();
@@ -72,6 +73,7 @@ fn build_utf8_date_time_array(size: usize, with_nulls: bool) -> ArrayRef {
         if with_nulls && rng.gen::<f32>() > 0.8 {
             builder.append_null().unwrap();
         } else {
+            #[allow(deprecated)]
             let string = NaiveDateTime::from_timestamp(rng.sample(range), 0)
                 .format("%Y-%m-%dT%H:%M:%S")
                 .to_string();

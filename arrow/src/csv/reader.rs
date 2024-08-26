@@ -683,6 +683,7 @@ impl Parser for Date64Type {
         match Self::DATA_TYPE {
             DataType::Date64 => {
                 let date_time = string.parse::<chrono::NaiveDateTime>().ok()?;
+                #[allow(deprecated)]
                 Self::Native::from_i64(date_time.timestamp_millis())
             }
             _ => None,
@@ -695,6 +696,7 @@ impl Parser for TimestampNanosecondType {
         match Self::DATA_TYPE {
             DataType::Timestamp(TimeUnit::Nanosecond, None) => {
                 let date_time = string.parse::<chrono::NaiveDateTime>().ok()?;
+                #[allow(deprecated)]
                 Self::Native::from_i64(date_time.timestamp_nanos())
             }
             _ => None,
@@ -707,6 +709,7 @@ impl Parser for TimestampMicrosecondType {
         match Self::DATA_TYPE {
             DataType::Timestamp(TimeUnit::Microsecond, None) => {
                 let date_time = string.parse::<chrono::NaiveDateTime>().ok()?;
+                #[allow(deprecated)]
                 Self::Native::from_i64(date_time.timestamp_nanos() / 1000)
             }
             _ => None,

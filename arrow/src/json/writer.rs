@@ -768,6 +768,7 @@ mod tests {
     #[test]
     fn write_timestamps() {
         let ts_string = "2018-11-13T17:11:10.011375885995";
+        #[allow(deprecated)]
         let ts_nanos = ts_string
             .parse::<chrono::NaiveDateTime>()
             .unwrap()
@@ -824,6 +825,7 @@ mod tests {
     #[test]
     fn write_dates() {
         let ts_string = "2018-11-13T17:11:10.011375885995";
+        #[allow(deprecated)]
         let ts_millis = ts_string
             .parse::<chrono::NaiveDateTime>()
             .unwrap()

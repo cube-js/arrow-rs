@@ -198,6 +198,7 @@ fn as_time<T: ArrowPrimitiveType>(v: i64) -> Option<NaiveTime> {
             _ => None,
         },
         DataType::Timestamp(_, _) => as_datetime::<T>(v).map(|datetime| datetime.time()),
+        #[allow(deprecated)]
         DataType::Date32 | DataType::Date64 => Some(NaiveTime::from_hms(0, 0, 0)),
         DataType::Interval(_) => None,
         _ => None,
@@ -535,6 +536,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_date64_array_from_vec_option() {
         // Test building a primitive array with null values
         // we use Int32 and Int64 as a backing array, so all Int32 and Int64 conventions

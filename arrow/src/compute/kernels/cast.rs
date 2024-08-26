@@ -1984,6 +1984,7 @@ fn cast_string_to_date64<Offset: StringOffsetSizeTrait>(
             if string_array.is_null(i) {
                 None
             } else {
+                #[allow(deprecated)]
                 string_array
                     .value(i)
                     .parse::<chrono::NaiveDateTime>()
@@ -2006,6 +2007,7 @@ fn cast_string_to_date64<Offset: StringOffsetSizeTrait>(
                 let string = string_array
                         .value(i);
 
+                    #[allow(deprecated)]
                     let result = string
                         .parse::<chrono::NaiveDateTime>()
                         .map(|datetime| datetime.timestamp_millis());
@@ -4297,6 +4299,7 @@ mod tests {
     #[test]
     fn test_cast_utf8_to_date32() {
         use chrono::NaiveDate;
+        #[allow(deprecated)]
         let from_ymd = chrono::NaiveDate::from_ymd;
         let since = chrono::NaiveDate::signed_duration_since;
 
@@ -4312,11 +4315,13 @@ mod tests {
         let c = b.as_any().downcast_ref::<Date32Array>().unwrap();
 
         // test valid inputs
+        #[allow(deprecated)]
         let date_value = since(NaiveDate::from_ymd(2000, 1, 1), from_ymd(1970, 1, 1))
             .num_days() as i32;
         assert!(c.is_valid(0)); // "2000-01-01"
         assert_eq!(date_value, c.value(0));
 
+        #[allow(deprecated)]
         let date_value = since(NaiveDate::from_ymd(2000, 2, 2), from_ymd(1970, 1, 1))
             .num_days() as i32;
         assert!(c.is_valid(1)); // "2000-2-2"

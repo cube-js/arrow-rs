@@ -73,6 +73,7 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
     // Fast path:  RFC3339 timestamp (with a T)
     // Example: 2020-09-08T13:42:29.190855Z
     if let Ok(ts) = DateTime::parse_from_rfc3339(s) {
+        #[allow(deprecated)]
         return Ok(ts.timestamp_nanos());
     }
 
@@ -109,6 +110,7 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
         if let Ok(ts) = chrono::format::parse(&mut p, rest, FORMAT1.iter())
             .and_then(|()| p.to_datetime())
         {
+            #[allow(deprecated)]
             return Ok(ts.timestamp_nanos());
         }
 
@@ -119,6 +121,7 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
         if let Ok(ts) = chrono::format::parse(&mut p, rest, FORMAT2.iter())
             .and_then(|()| p.to_datetime_with_timezone(&Utc))
         {
+            #[allow(deprecated)]
             return Ok(ts.timestamp_nanos());
         }
 
@@ -264,6 +267,7 @@ struct ParsedPrefix {
 /// nanosecond epoch timestamp relative to UTC.
 fn naive_datetime_to_timestamp(_s: &str, datetime: NaiveDateTime) -> Result<i64> {
     // CubeStore-specific: do not take timezones into account.
+    #[allow(deprecated)]
     Ok(Utc.from_utc_datetime(&datetime).timestamp_nanos())
 }
 
@@ -319,6 +323,7 @@ mod tests {
     /// Interprets a naive_datetime (with no explicit timzone offset)
     /// using the local timezone and returns the timestamp in UTC (0
     /// offset)
+    #[allow(deprecated)]
     fn naive_datetime_to_timestamp(naive_datetime: &NaiveDateTime) -> i64 {
         // Note: Use chrono APIs that are different than
         // naive_datetime_to_timestamp to compute the utc offset to
@@ -341,7 +346,9 @@ mod tests {
         // timezone the test machine is running. Thus it is still
         // somewhat suceptable to bugs in the use of chrono
         let naive_datetime = NaiveDateTime::new(
+            #[allow(deprecated)]
             NaiveDate::from_ymd(2020, 9, 8),
+            #[allow(deprecated)]
             NaiveTime::from_hms_nano(13, 42, 29, 190855),
         );
 
@@ -359,7 +366,9 @@ mod tests {
         // Also ensure that parsing timestamps with no fractional
         // second part works as well
         let naive_datetime_whole_secs = NaiveDateTime::new(
+            #[allow(deprecated)]
             NaiveDate::from_ymd(2020, 9, 8),
+            #[allow(deprecated)]
             NaiveTime::from_hms(13, 42, 29),
         );
 
