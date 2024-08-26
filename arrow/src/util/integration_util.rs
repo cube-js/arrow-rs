@@ -249,14 +249,6 @@ impl ArrowJsonBatch {
                         let arr = Int64Array::from(arr.data().clone());
                         arr.equals_json(&json_array.iter().collect::<Vec<&Value>>()[..])
                     }
-                    DataType::Int64
-                    | DataType::Date64
-                    | DataType::Time64(_)
-                    | DataType::Timestamp(_, _)
-                    | DataType::Duration(_) => {
-                        let arr = Int64Array::from(arr.data().clone());
-                        arr.equals_json(&json_array.iter().collect::<Vec<&Value>>()[..])
-                    }
                     DataType::Interval(IntervalUnit::YearMonth) => {
                         let arr = IntervalYearMonthArray::from(arr.data().clone());
                         arr.equals_json(&json_array.iter().collect::<Vec<&Value>>()[..])
