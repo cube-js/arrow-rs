@@ -1274,7 +1274,7 @@ mod tests {
             );
         }
 
-        result = Type::primitive_type_builder("foo", PhysicalType::INT96)
+        result = Type::primitive_type_builder("foo", PhysicalType::FLOAT)
             .with_repetition(Repetition::REQUIRED)
             .with_converted_type(ConvertedType::DECIMAL)
             .with_precision(-1)
