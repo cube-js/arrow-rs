@@ -244,11 +244,11 @@ mod tests {
 
         cases.into_iter().try_for_each::<_, Result<()>>(
             |(array, start, length, expected)| {
-                let array = StringArray::from(array);
+                let array = T::from(array.iter().copied().map(Some).collect());
                 let result = substring(&array, start, &length)?;
                 assert_eq!(array.len(), result.len());
-                let result = result.as_any().downcast_ref::<StringArray>().unwrap();
-                let expected = StringArray::from(expected);
+                let result = result.as_any().downcast_ref::<T>().unwrap();
+                let expected = T::from(expected.iter().copied().map(Some).collect());
                 assert_eq!(&expected, result,);
                 Ok(())
             },
