@@ -293,7 +293,7 @@ pub fn filter_record_batch(
     let filtered_arrays = record_batch
         .columns()
         .iter()
-        .map(|a| make_array(filter(&a.data())))
+        .map(|a| make_array(filter(a.data())))
         .collect();
     RecordBatch::try_new(record_batch.schema(), filtered_arrays)
 }
@@ -516,7 +516,7 @@ mod tests {
 
     #[test]
     fn test_filter_dictionary_array() {
-        let values = vec![Some("hello"), None, Some("world"), Some("!")];
+        let values = [Some("hello"), None, Some("world"), Some("!")];
         let a: Int8DictionaryArray = values.iter().copied().collect();
         let b = BooleanArray::from(vec![false, true, true, false]);
         let c = filter(&a, &b).unwrap();

@@ -312,5 +312,5 @@ fn dict_array_value_to_string<K: ArrowPrimitiveType>(
         ))
     })?;
 
-    array_value_to_string(&dict_array.values(), dict_index)
+    array_value_to_string(dict_array.values(), dict_index)
 }

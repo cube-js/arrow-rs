@@ -19,7 +19,7 @@
 //! using row group writers and column writers respectively.
 
 use std::{
-    io::{Seek, SeekFrom, Write},
+    io::{Seek, Write},
     sync::Arc,
 };
 
@@ -181,7 +181,7 @@ impl<W: ParquetWriter> SerializedFileWriter<W> {
         let file_metadata = parquet::FileMetaData {
             version: self.props.writer_version().as_num(),
             schema: types::to_thrift(self.schema.as_ref())?,
-            num_rows: self.total_num_rows as i64,
+            num_rows: self.total_num_rows,
             row_groups: self
                 .row_groups
                 .as_slice()
@@ -194,13 +194,13 @@ impl<W: ParquetWriter> SerializedFileWriter<W> {
         };
 
         // Write file metadata
-        let start_pos = self.buf.seek(SeekFrom::Current(0))?;
+        let start_pos = self.buf.stream_position()?;
         {
             let mut protocol = TCompactOutputProtocol::new(&mut self.buf);
             file_metadata.write_to_out_protocol(&mut protocol)?;
             protocol.flush()?;
         }
-        let end_pos = self.buf.seek(SeekFrom::Current(0))?;
+        let end_pos = self.buf.stream_position()?;
 
         // Write footer
         let mut footer_buffer: [u8; FOOTER_SIZE] = [0; FOOTER_SIZE];
@@ -778,7 +778,7 @@ mod tests {
         // ARROW-11803: Test that the converted and logical types have been populated
         let fields = reader.metadata().file_metadata().schema().get_fields();
         assert_eq!(fields.len(), 1);
-        let read_field = fields.get(0).unwrap();
+        let read_field = fields.first().unwrap();
         assert_eq!(read_field, &field);
     }
 

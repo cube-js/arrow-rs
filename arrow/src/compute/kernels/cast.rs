@@ -1453,9 +1453,9 @@ pub fn cast_with_options(
         // temporal casts
         (Int32, Date32) => cast_array_data::<Date32Type>(array, to_type.clone()),
         (Int32, Date64) => cast_with_options(
-            &cast_with_options(array, &DataType::Date32, &cast_options)?,
+            &cast_with_options(array, &DataType::Date32, cast_options)?,
             &DataType::Date64,
-            &cast_options,
+            cast_options,
         ),
         (Int32, Time32(TimeUnit::Second)) => {
             cast_array_data::<Time32SecondType>(array, to_type.clone())
@@ -1468,14 +1468,14 @@ pub fn cast_with_options(
         (Date32, Int64) => cast_with_options(
             &cast_with_options(array, &DataType::Int32, cast_options)?,
             &DataType::Int64,
-            &cast_options,
+            cast_options,
         ),
         (Time32(_), Int32) => cast_array_data::<Int32Type>(array, to_type.clone()),
         (Int64, Date64) => cast_array_data::<Date64Type>(array, to_type.clone()),
         (Int64, Date32) => cast_with_options(
-            &cast_with_options(array, &DataType::Int32, &cast_options)?,
+            &cast_with_options(array, &DataType::Int32, cast_options)?,
             &DataType::Date32,
-            &cast_options,
+            cast_options,
         ),
         // No support for second/milliseconds with i64
         (Int64, Time64(TimeUnit::Microsecond)) => {
@@ -1487,9 +1487,9 @@ pub fn cast_with_options(
 
         (Date64, Int64) => cast_array_data::<Int64Type>(array, to_type.clone()),
         (Date64, Int32) => cast_with_options(
-            &cast_with_options(array, &DataType::Int64, &cast_options)?,
+            &cast_with_options(array, &DataType::Int64, cast_options)?,
             &DataType::Int32,
-            &cast_options,
+            cast_options,
         ),
         (Time64(_), Int64) => cast_array_data::<Int64Type>(array, to_type.clone()),
         (Date32, Date64) => {
@@ -1535,8 +1535,8 @@ pub fn cast_with_options(
             let time_array = Int32Array::from(array.data().clone());
             // note: (numeric_cast + SIMD multiply) is faster than (cast & multiply)
             let c: Int64Array = numeric_cast(&time_array);
-            let from_size = time_unit_multiple(&from_unit);
-            let to_size = time_unit_multiple(&to_unit);
+            let from_size = time_unit_multiple(from_unit);
+            let to_size = time_unit_multiple(to_unit);
             // from is only smaller than to if 64milli/64second don't exist
             let mult = Int64Array::from(vec![to_size / from_size; array.len()]);
             let converted = multiply(&c, &mult)?;
@@ -1576,19 +1576,19 @@ pub fn cast_with_options(
         }
         (Time64(from_unit), Time32(to_unit)) => {
             let time_array = Int64Array::from(array.data().clone());
-            let from_size = time_unit_multiple(&from_unit);
-            let to_size = time_unit_multiple(&to_unit);
+            let from_size = time_unit_multiple(from_unit);
+            let to_size = time_unit_multiple(to_unit);
             let divisor = from_size / to_size;
             match to_unit {
                 TimeUnit::Second => {
                     let values = unary::<_, _, Time32SecondType>(&time_array, |x| {
-                        (x as i64 / divisor) as i32
+                        (x / divisor) as i32
                     });
                     Ok(Arc::new(values) as ArrayRef)
                 }
                 TimeUnit::Millisecond => {
                     let values = unary::<_, _, Time32MillisecondType>(&time_array, |x| {
-                        (x as i64 / divisor) as i32
+                        (x / divisor) as i32
                     });
                     Ok(Arc::new(values) as ArrayRef)
                 }
@@ -1613,8 +1613,8 @@ pub fn cast_with_options(
         }
         (Timestamp(from_unit, _), Timestamp(to_unit, _)) => {
             let time_array = Int64Array::from(array.data().clone());
-            let from_size = time_unit_multiple(&from_unit);
-            let to_size = time_unit_multiple(&to_unit);
+            let from_size = time_unit_multiple(from_unit);
+            let to_size = time_unit_multiple(to_unit);
             // we either divide or multiply, depending on size of each unit
             // units are never the same when the types are the same
             let converted = if from_size >= to_size {
@@ -1650,7 +1650,7 @@ pub fn cast_with_options(
         }
         (Timestamp(from_unit, _), Date32) => {
             let time_array = Int64Array::from(array.data().clone());
-            let from_size = time_unit_multiple(&from_unit) * SECONDS_IN_DAY;
+            let from_size = time_unit_multiple(from_unit) * SECONDS_IN_DAY;
             let mut b = Date32Builder::new(array.len());
             for i in 0..array.len() {
                 if array.is_null(i) {
@@ -1663,7 +1663,7 @@ pub fn cast_with_options(
             Ok(Arc::new(b.finish()) as ArrayRef)
         }
         (Timestamp(from_unit, _), Date64) => {
-            let from_size = time_unit_multiple(&from_unit);
+            let from_size = time_unit_multiple(from_unit);
             let to_size = MILLISECONDS;
 
             // Scale time_array by (to_size / from_size) using a
@@ -2178,9 +2178,9 @@ fn dictionary_cast<K: ArrowDictionaryKeyType>(
             let keys_array: ArrayRef =
                 Arc::new(PrimitiveArray::<K>::from(dict_array.keys().data().clone()));
             let values_array = dict_array.values();
-            let cast_keys = cast_with_options(&keys_array, to_index_type, &cast_options)?;
+            let cast_keys = cast_with_options(&keys_array, to_index_type, cast_options)?;
             let cast_values =
-                cast_with_options(values_array, to_value_type, &cast_options)?;
+                cast_with_options(values_array, to_value_type, cast_options)?;
 
             // Failure to cast keys (because they don't fit in the
             // target type) results in NULL values;
@@ -2252,8 +2252,7 @@ where
 
     // attempt to cast the dict values to the target type
     // use the take kernel to expand out the dictionary
-    let cast_dict_values =
-        cast_with_options(&dict_array.values(), to_type, cast_options)?;
+    let cast_dict_values = cast_with_options(dict_array.values(), to_type, cast_options)?;
 
     // Note take requires first casting the indices to u32
     let keys_array: ArrayRef =
@@ -2344,7 +2343,7 @@ where
     V: ArrowNumericType,
 {
     // attempt to cast the source array values to the target value type (the dictionary values type)
-    let cast_values = cast_with_options(array, &dict_value_type, cast_options)?;
+    let cast_values = cast_with_options(array, dict_value_type, cast_options)?;
     let values = cast_values
         .as_any()
         .downcast_ref::<PrimitiveArray<V>>()
@@ -3038,7 +3037,7 @@ mod tests {
 
     #[test]
     fn test_str_to_str_casts() {
-        for data in vec![
+        for data in [
             vec![Some("foo"), Some("bar"), Some("ham")],
             vec![Some("foo"), None, Some("bar")],
         ] {
@@ -3445,12 +3444,8 @@ mod tests {
 
     #[test]
     fn test_cast_from_uint32() {
-        let u32_values: Vec<u32> = vec![
-            0,
-            std::u8::MAX as u32,
-            std::u16::MAX as u32,
-            std::u32::MAX as u32,
-        ];
+        let u32_values: Vec<u32> =
+            vec![0, std::u8::MAX as u32, std::u16::MAX as u32, std::u32::MAX];
         let u32_array: ArrayRef = Arc::new(UInt32Array::from(u32_values));
 
         let f64_expected = vec!["0.0", "255.0", "65535.0", "4294967295.0"];
@@ -3516,7 +3511,7 @@ mod tests {
 
     #[test]
     fn test_cast_from_uint16() {
-        let u16_values: Vec<u16> = vec![0, std::u8::MAX as u16, std::u16::MAX as u16];
+        let u16_values: Vec<u16> = vec![0, std::u8::MAX as u16, std::u16::MAX];
         let u16_array: ArrayRef = Arc::new(UInt16Array::from(u16_values));
 
         let f64_expected = vec!["0.0", "255.0", "65535.0"];
@@ -3804,13 +3799,13 @@ mod tests {
     #[test]
     fn test_cast_from_int32() {
         let i32_values: Vec<i32> = vec![
-            std::i32::MIN as i32,
+            std::i32::MIN,
             std::i16::MIN as i32,
             std::i8::MIN as i32,
             0,
             std::i8::MAX as i32,
             std::i16::MAX as i32,
-            std::i32::MAX as i32,
+            std::i32::MAX,
         ];
         let i32_array: ArrayRef = Arc::new(Int32Array::from(i32_values));
 
@@ -3971,13 +3966,13 @@ mod tests {
     #[test]
     fn test_cast_from_date32() {
         let i32_values: Vec<i32> = vec![
-            std::i32::MIN as i32,
+            std::i32::MIN,
             std::i16::MIN as i32,
             std::i8::MIN as i32,
             0,
             std::i8::MAX as i32,
             std::i16::MAX as i32,
-            std::i32::MAX as i32,
+            std::i32::MAX,
         ];
         let date32_array: ArrayRef = Arc::new(Date32Array::from(i32_values));
 
@@ -4067,7 +4062,7 @@ mod tests {
     where
         T: ArrowNumericType,
     {
-        let c = cast(&array, dt).unwrap();
+        let c = cast(array, dt).unwrap();
         let a = c.as_any().downcast_ref::<PrimitiveArray<T>>().unwrap();
         let mut v: Vec<String> = vec![];
         for i in 0..array.len() {
@@ -4374,7 +4369,7 @@ mod tests {
         for array in get_arrays_of_all_types() {
             for to_type in &all_types {
                 println!("Test casting {:?} --> {:?}", array.data_type(), to_type);
-                let cast_result = cast(&array, &to_type);
+                let cast_result = cast(&array, to_type);
                 let reported_cast_ability = can_cast_types(array.data_type(), to_type);
 
                 // check for mismatch

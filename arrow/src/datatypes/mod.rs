@@ -37,7 +37,6 @@ pub use types::*;
 mod datatype;
 pub use datatype::*;
 mod ffi;
-pub use ffi::*;
 
 /// A reference-counted reference to a [`Schema`](crate::datatypes::Schema).
 pub type SchemaRef = Arc<Schema>;
@@ -797,11 +796,11 @@ mod tests {
                     "Key": "Value"
                 }
             }"#;
-        let value: Value = serde_json::from_str(&json).unwrap();
+        let value: Value = serde_json::from_str(json).unwrap();
         assert_eq!(expected, value);
 
         // convert back to a schema
-        let value: Value = serde_json::from_str(&json).unwrap();
+        let value: Value = serde_json::from_str(json).unwrap();
         let schema2 = Schema::from(&value).unwrap();
 
         assert_eq!(schema, schema2);
@@ -820,7 +819,7 @@ mod tests {
                 ],
                 "metadata": {}
             }"#;
-        let value: Value = serde_json::from_str(&json).unwrap();
+        let value: Value = serde_json::from_str(json).unwrap();
         let schema = Schema::from(&value).unwrap();
         assert!(schema.metadata.is_empty());
 
@@ -837,7 +836,7 @@ mod tests {
                     }
                 ]
             }"#;
-        let value: Value = serde_json::from_str(&json).unwrap();
+        let value: Value = serde_json::from_str(json).unwrap();
         let schema = Schema::from(&value).unwrap();
         assert!(schema.metadata.is_empty());
     }

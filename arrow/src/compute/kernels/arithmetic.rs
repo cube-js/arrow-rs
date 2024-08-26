@@ -1081,9 +1081,9 @@ where
         + One,
 {
     #[cfg(feature = "simd")]
-    return simd_modulus(&left, &right);
+    return simd_modulus(left, right);
     #[cfg(not(feature = "simd"))]
-    return math_modulus(&left, &right);
+    return math_modulus(left, right);
 }
 
 /// Perform `left / right` operation on two arrays. If either left or right value is null
@@ -1104,9 +1104,9 @@ where
         + One,
 {
     #[cfg(feature = "simd")]
-    return simd_divide(&left, &right);
+    return simd_divide(left, right);
     #[cfg(not(feature = "simd"))]
-    return math_divide(&left, &right);
+    return math_divide(left, right);
 }
 
 /// Modulus every value in an array by a scalar. If any value in the array is null then the
@@ -1127,9 +1127,9 @@ where
         + One,
 {
     #[cfg(feature = "simd")]
-    return simd_modulus_scalar(&array, modulo);
+    return simd_modulus_scalar(array, modulo);
     #[cfg(not(feature = "simd"))]
-    return math_modulus_scalar(&array, modulo);
+    return math_modulus_scalar(array, modulo);
 }
 
 /// Divide every value in an array by a scalar. If any value in the array is null then the
@@ -1150,9 +1150,9 @@ where
         + One,
 {
     #[cfg(feature = "simd")]
-    return simd_divide_scalar(&array, divisor);
+    return simd_divide_scalar(array, divisor);
     #[cfg(not(feature = "simd"))]
-    return math_divide_scalar(&array, divisor);
+    return math_divide_scalar(array, divisor);
 }
 
 #[cfg(test)]
@@ -1184,7 +1184,7 @@ mod tests {
         assert_eq!(5, a.value(0));
         assert_eq!(6, b.value(0));
 
-        let c = add(&a, &b).unwrap();
+        let c = add(a, b).unwrap();
         assert_eq!(5, c.len());
         assert_eq!(11, c.value(0));
         assert_eq!(13, c.value(1));
@@ -1197,9 +1197,7 @@ mod tests {
     fn test_primitive_array_add_mismatched_length() {
         let a = Int32Array::from(vec![5, 6, 7, 8, 9]);
         let b = Int32Array::from(vec![6, 7, 8]);
-        let e = add(&a, &b)
-            .err()
-            .expect("should have failed due to different lengths");
+        let e = add(&a, &b).expect_err("should have failed due to different lengths");
         assert_eq!(
             "ComputeError(\"Cannot perform math operation on arrays of different length\")",
             format!("{:?}", e)
@@ -1281,7 +1279,7 @@ mod tests {
         let a = a.as_any().downcast_ref::<Int32Array>().unwrap();
         let b = b.as_any().downcast_ref::<Int32Array>().unwrap();
 
-        let c = divide(&a, &b).unwrap();
+        let c = divide(a, b).unwrap();
         assert_eq!(5, c.len());
         assert_eq!(3, c.value(0));
         assert_eq!(2, c.value(1));
@@ -1299,7 +1297,7 @@ mod tests {
         let a = a.as_any().downcast_ref::<Int32Array>().unwrap();
         let b = b.as_any().downcast_ref::<Int32Array>().unwrap();
 
-        let c = modulus(&a, &b).unwrap();
+        let c = modulus(a, b).unwrap();
         assert_eq!(5, c.len());
         assert_eq!(0, c.value(0));
         assert_eq!(3, c.value(1));
@@ -1397,7 +1395,7 @@ mod tests {
         let b = b.slice(8, 6);
         let b = b.as_any().downcast_ref::<Int32Array>().unwrap();
 
-        let c = divide(&a, &b).unwrap();
+        let c = divide(a, b).unwrap();
         assert_eq!(6, c.len());
         assert_eq!(3, c.value(0));
         assert!(c.is_null(1));
@@ -1450,7 +1448,7 @@ mod tests {
         let b = b.slice(8, 6);
         let b = b.as_any().downcast_ref::<Int32Array>().unwrap();
 
-        let c = modulus(&a, &b).unwrap();
+        let c = modulus(a, b).unwrap();
         assert_eq!(6, c.len());
         assert_eq!(0, c.value(0));
         assert!(c.is_null(1));
@@ -1500,28 +1498,26 @@ mod tests {
 
     #[test]
     fn test_primitive_array_negate() {
-        let a: Int64Array = (0..100).into_iter().map(Some).collect();
+        let a: Int64Array = (0..100).map(Some).collect();
         let actual = negate(&a).unwrap();
-        let expected: Int64Array = (0..100).into_iter().map(|i| Some(-i)).collect();
+        let expected: Int64Array = (0..100).map(|i| Some(-i)).collect();
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn test_arithmetic_kernel_should_not_rely_on_padding() {
-        let a: UInt8Array = (0..128_u8).into_iter().map(Some).collect();
+        let a: UInt8Array = (0..128_u8).map(Some).collect();
         let a = a.slice(63, 65);
         let a = a.as_any().downcast_ref::<UInt8Array>().unwrap();
 
-        let b: UInt8Array = (0..128_u8).into_iter().map(Some).collect();
+        let b: UInt8Array = (0..128_u8).map(Some).collect();
         let b = b.slice(63, 65);
         let b = b.as_any().downcast_ref::<UInt8Array>().unwrap();
 
-        let actual = add(&a, &b).unwrap();
+        let actual = add(a, b).unwrap();
         let actual: Vec<Option<u8>> = actual.iter().collect();
-        let expected: Vec<Option<u8>> = (63..63_u8 + 65_u8)
-            .into_iter()
-            .map(|i| Some(i + i))
-            .collect();
+        let expected: Vec<Option<u8>> =
+            (63..63_u8 + 65_u8).map(|i| Some(i + i)).collect();
         assert_eq!(expected, actual);
     }
 

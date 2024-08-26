@@ -372,7 +372,7 @@ impl<'a> MergeRowCursor<'a> {
 
 impl<'a> PartialOrd for MergeRowCursor<'a> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.compare(other))
+        Some(std::cmp::Ord::cmp(self, other))
     }
 }
 
@@ -385,7 +385,7 @@ impl<'a> PartialEq for MergeRowCursor<'a> {
 impl<'a> Eq for MergeRowCursor<'a> {}
 impl<'a> Ord for MergeRowCursor<'a> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
+        self.compare(other)
     }
 }
 
@@ -457,7 +457,7 @@ impl<'a> ArrayComparator for StringComparator<'a> {
         } else {
             let left_value = left.value(left_row_index);
             let right_value = right.value(right_row_index);
-            left_value.cmp(&right_value)
+            left_value.cmp(right_value)
         }
     }
 
@@ -556,7 +556,7 @@ where
     pub fn new(arrays: &[&'a ArrayRef]) -> Self {
         Self {
             arrays: arrays
-                .into_iter()
+                .iter()
                 .map(|array| array.as_any().downcast_ref::<PrimitiveArray<F>>().unwrap())
                 .collect(),
         }

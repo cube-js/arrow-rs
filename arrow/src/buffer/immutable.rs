@@ -55,7 +55,7 @@ impl Buffer {
     /// Initializes a [Buffer] from a slice of items.
     pub fn from_slice_ref<U: ArrowNativeType, T: AsRef<[U]>>(items: &T) -> Self {
         let slice = items.as_ref();
-        let capacity = slice.len() * std::mem::size_of::<U>();
+        let capacity = std::mem::size_of_val(slice);
         let mut buffer = MutableBuffer::with_capacity(capacity);
         buffer.extend_from_slice(slice);
         buffer.into()
@@ -188,14 +188,14 @@ impl Buffer {
             return self.slice(offset / 8);
         }
 
-        bitwise_unary_op_helper(&self, offset, len, |a| a)
+        bitwise_unary_op_helper(self, offset, len, |a| a)
     }
 
     /// Returns a `BitChunks` instance which can be used to iterate over this buffers bits
     /// in larger chunks and starting at arbitrary bit offsets.
     /// Note that both `offset` and `length` are measured in bits.
     pub fn bit_chunks(&self, offset: usize, len: usize) -> BitChunks {
-        BitChunks::new(&self.as_slice(), offset, len)
+        BitChunks::new(self.as_slice(), offset, len)
     }
 
     /// Returns the number of 1-bits in this buffer.

@@ -72,8 +72,8 @@ impl Type {
     /// Returns [`BasicTypeInfo`] information about the type.
     pub fn get_basic_info(&self) -> &BasicTypeInfo {
         match *self {
-            Type::PrimitiveType { ref basic_info, .. } => &basic_info,
-            Type::GroupType { ref basic_info, .. } => &basic_info,
+            Type::PrimitiveType { ref basic_info, .. } => basic_info,
+            Type::GroupType { ref basic_info, .. } => basic_info,
         }
     }
 
@@ -1089,7 +1089,7 @@ fn from_thrift_helper(
             let mut fields = vec![];
             let mut next_index = index + 1;
             for _ in 0..n {
-                let child_result = from_thrift_helper(elements, next_index as usize)?;
+                let child_result = from_thrift_helper(elements, next_index)?;
                 next_index = child_result.0;
                 fields.push(child_result.1);
             }
@@ -1628,8 +1628,8 @@ mod tests {
         //     required int64 item1    2    1
         //     optional boolean item2  3    1
         //     repeated int32 item3    3    2
-        let ex_max_def_levels = vec![0, 1, 1, 2, 3, 3];
-        let ex_max_rep_levels = vec![0, 0, 1, 1, 1, 2];
+        let ex_max_def_levels = [0, 1, 1, 2, 3, 3];
+        let ex_max_rep_levels = [0, 0, 1, 1, 1, 2];
 
         for i in 0..nleaves {
             let col = descr.column(i);
@@ -2057,8 +2057,8 @@ mod tests {
         let expected_schema = parse_message_type(message_type).unwrap();
         let mut thrift_schema = to_thrift(&expected_schema).unwrap();
         // Change all of None to Some(0)
-        for mut elem in &mut thrift_schema[..] {
-            if elem.num_children == None {
+        for elem in &mut thrift_schema[..] {
+            if elem.num_children.is_none() {
                 elem.num_children = Some(0);
             }
         }

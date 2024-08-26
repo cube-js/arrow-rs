@@ -287,20 +287,12 @@ where
 }
 
 /// Options that define how `take` should behave
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TakeOptions {
     /// Perform bounds check before taking indices from values.
     /// If enabled, an `ArrowError` is returned if the indices are out of bounds.
     /// If not enabled, and indices exceed bounds, the kernel will panic.
     pub check_bounds: bool,
-}
-
-impl Default for TakeOptions {
-    fn default() -> Self {
-        Self {
-            check_bounds: false,
-        }
-    }
 }
 
 #[inline(always)]
@@ -522,8 +514,7 @@ where
 
     let null_count = values.null_count();
 
-    let nulls;
-    if null_count == 0 && indices.null_count() == 0 {
+    let nulls = if null_count == 0 && indices.null_count() == 0 {
         (0..data_len).try_for_each::<_, Result<()>>(|i| {
             let index = ToPrimitive::to_usize(&indices.value(i)).ok_or_else(|| {
                 ArrowError::ComputeError("Cast to usize failed".to_string())
@@ -536,7 +527,7 @@ where
             Ok(())
         })?;
 
-        nulls = indices.data_ref().null_buffer().cloned();
+        indices.data_ref().null_buffer().cloned()
     } else {
         let mut null_buf = MutableBuffer::new(num_byte).with_bitset(num_byte, true);
         let null_slice = null_buf.as_slice_mut();
@@ -558,7 +549,7 @@ where
             Ok(())
         })?;
 
-        nulls = match indices.data_ref().null_buffer() {
+        match indices.data_ref().null_buffer() {
             Some(buffer) => Some(buffer_bin_and(
                 buffer,
                 indices.offset(),
@@ -567,8 +558,8 @@ where
                 indices.len(),
             )),
             None => Some(null_buf.into()),
-        };
-    }
+        }
+    };
 
     let data = ArrayData::new(
         DataType::Boolean,
@@ -1026,7 +1017,7 @@ mod tests {
 
         test_take_primitive_arrays_non_null::<Int64Type>(
             vec![0, 10, 20, 30, 40, 50],
-            &index,
+            index,
             None,
             vec![Some(20), Some(30), None, None],
         )
@@ -1047,7 +1038,7 @@ mod tests {
 
         test_take_primitive_arrays::<Int64Type>(
             vec![None, None, Some(20), Some(30), Some(40), Some(50)],
-            &index,
+            index,
             None,
             vec![Some(20), Some(30), None, None],
         )
@@ -1302,7 +1293,7 @@ mod tests {
         // boolean
         test_take_boolean_arrays(
             vec![Some(false), None, Some(true), Some(false), None],
-            &index,
+            index,
             None,
             vec![None, Some(false), Some(true), None],
         );

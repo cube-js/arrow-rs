@@ -419,7 +419,7 @@ impl<T: DataType> ColumnReaderImpl<T> {
             self.decoders.get_mut(&encoding).unwrap()
         };
 
-        decoder.set_data(buffer_ptr.start_from(offset), len as usize)?;
+        decoder.set_data(buffer_ptr.start_from(offset), len)?;
         self.current_encoding = Some(encoding);
         Ok(())
     }
@@ -956,9 +956,9 @@ mod tests {
         let num_pages = 2;
         let num_levels = 4;
         let batch_size = 5;
-        let values = &mut vec![0; 7];
-        let def_levels = &mut vec![0; 7];
-        let rep_levels = &mut vec![0; 7];
+        let values = &mut [0; 7];
+        let rep_levels = &mut [0; 7];
+        let def_levels = &mut [0; 7];
 
         let mut tester = ColumnReaderTester::<Int32Type>::new();
         tester.test_read_batch(

@@ -597,7 +597,7 @@ mod tests {
             vec![Buffer::from_slice_ref(&[1i32, 2, 3, 4, 5])],
             vec![],
         );
-        let v = vec![0, 1, 2, 3];
+        let v = [0, 1, 2, 3];
         let b1 = Buffer::from(&v[..]);
         let arr_data = ArrayData::builder(DataType::Int32)
             .len(20)

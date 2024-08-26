@@ -66,7 +66,7 @@ impl JsonEqual for BooleanArray {
 impl<T: ArrowPrimitiveType> PartialEq<Value> for PrimitiveArray<T> {
     fn eq(&self, json: &Value) -> bool {
         match json {
-            Value::Array(array) => self.equals_json_values(&array),
+            Value::Array(array) => self.equals_json_values(array),
             _ => false,
         }
     }
@@ -75,7 +75,7 @@ impl<T: ArrowPrimitiveType> PartialEq<Value> for PrimitiveArray<T> {
 impl<T: ArrowPrimitiveType> PartialEq<PrimitiveArray<T>> for Value {
     fn eq(&self, arrow: &PrimitiveArray<T>) -> bool {
         match self {
-            Value::Array(array) => arrow.equals_json_values(&array),
+            Value::Array(array) => arrow.equals_json_values(array),
             _ => false,
         }
     }
@@ -204,7 +204,7 @@ impl JsonEqual for StructArray {
 impl PartialEq<Value> for StructArray {
     fn eq(&self, json: &Value) -> bool {
         match json {
-            Value::Array(json_array) => self.equals_json_values(&json_array),
+            Value::Array(json_array) => self.equals_json_values(json_array),
             _ => false,
         }
     }
@@ -213,7 +213,7 @@ impl PartialEq<Value> for StructArray {
 impl PartialEq<StructArray> for Value {
     fn eq(&self, arrow: &StructArray) -> bool {
         match self {
-            Value::Array(json_array) => arrow.equals_json_values(&json_array),
+            Value::Array(json_array) => arrow.equals_json_values(json_array),
             _ => false,
         }
     }
@@ -244,7 +244,7 @@ impl<OffsetSize: BinaryOffsetSizeTrait> PartialEq<Value>
 {
     fn eq(&self, json: &Value) -> bool {
         match json {
-            Value::Array(json_array) => self.equals_json_values(&json_array),
+            Value::Array(json_array) => self.equals_json_values(json_array),
             _ => false,
         }
     }
@@ -255,7 +255,7 @@ impl<OffsetSize: BinaryOffsetSizeTrait> PartialEq<GenericBinaryArray<OffsetSize>
 {
     fn eq(&self, arrow: &GenericBinaryArray<OffsetSize>) -> bool {
         match self {
-            Value::Array(json_array) => arrow.equals_json_values(&json_array),
+            Value::Array(json_array) => arrow.equals_json_values(json_array),
             _ => false,
         }
     }
@@ -280,7 +280,7 @@ impl<OffsetSize: StringOffsetSizeTrait> PartialEq<Value>
 {
     fn eq(&self, json: &Value) -> bool {
         match json {
-            Value::Array(json_array) => self.equals_json_values(&json_array),
+            Value::Array(json_array) => self.equals_json_values(json_array),
             _ => false,
         }
     }
@@ -291,7 +291,7 @@ impl<OffsetSize: StringOffsetSizeTrait> PartialEq<GenericStringArray<OffsetSize>
 {
     fn eq(&self, arrow: &GenericStringArray<OffsetSize>) -> bool {
         match self {
-            Value::Array(json_array) => arrow.equals_json_values(&json_array),
+            Value::Array(json_array) => arrow.equals_json_values(json_array),
             _ => false,
         }
     }
@@ -320,7 +320,7 @@ impl JsonEqual for FixedSizeBinaryArray {
 impl PartialEq<Value> for FixedSizeBinaryArray {
     fn eq(&self, json: &Value) -> bool {
         match json {
-            Value::Array(json_array) => self.equals_json_values(&json_array),
+            Value::Array(json_array) => self.equals_json_values(json_array),
             _ => false,
         }
     }
@@ -329,7 +329,7 @@ impl PartialEq<Value> for FixedSizeBinaryArray {
 impl PartialEq<FixedSizeBinaryArray> for Value {
     fn eq(&self, arrow: &FixedSizeBinaryArray) -> bool {
         match self {
-            Value::Array(json_array) => arrow.equals_json_values(&json_array),
+            Value::Array(json_array) => arrow.equals_json_values(json_array),
             _ => false,
         }
     }
@@ -357,7 +357,7 @@ impl JsonEqual for DecimalArray {
 impl PartialEq<Value> for DecimalArray {
     fn eq(&self, json: &Value) -> bool {
         match json {
-            Value::Array(json_array) => self.equals_json_values(&json_array),
+            Value::Array(json_array) => self.equals_json_values(json_array),
             _ => false,
         }
     }
@@ -366,7 +366,7 @@ impl PartialEq<Value> for DecimalArray {
 impl PartialEq<DecimalArray> for Value {
     fn eq(&self, arrow: &DecimalArray) -> bool {
         match self {
-            Value::Array(json_array) => arrow.equals_json_values(&json_array),
+            Value::Array(json_array) => arrow.equals_json_values(json_array),
             _ => false,
         }
     }
@@ -394,7 +394,7 @@ impl JsonEqual for NullArray {
 impl PartialEq<NullArray> for Value {
     fn eq(&self, arrow: &NullArray) -> bool {
         match self {
-            Value::Array(json_array) => arrow.equals_json_values(&json_array),
+            Value::Array(json_array) => arrow.equals_json_values(json_array),
             _ => false,
         }
     }
@@ -403,7 +403,7 @@ impl PartialEq<NullArray> for Value {
 impl PartialEq<Value> for NullArray {
     fn eq(&self, json: &Value) -> bool {
         match json {
-            Value::Array(json_array) => self.equals_json_values(&json_array),
+            Value::Array(json_array) => self.equals_json_values(json_array),
             _ => false,
         }
     }
@@ -510,7 +510,7 @@ mod tests {
         // Test equal case
         let arrow_array = create_list_array(
             &mut ListBuilder::new(Int32Builder::new(10)),
-            &[Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
+            [Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
         )
         .unwrap();
         let json_array: Value = serde_json::from_str(
@@ -529,7 +529,7 @@ mod tests {
         // Test unequal case
         let arrow_array = create_list_array(
             &mut ListBuilder::new(Int32Builder::new(10)),
-            &[Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
+            [Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
         )
         .unwrap();
         let json_array: Value = serde_json::from_str(
@@ -548,7 +548,7 @@ mod tests {
         // Test incorrect type case
         let arrow_array = create_list_array(
             &mut ListBuilder::new(Int32Builder::new(10)),
-            &[Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
+            [Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
         )
         .unwrap();
         let json_array: Value = serde_json::from_str(
@@ -568,7 +568,7 @@ mod tests {
         // Test equal case
         let arrow_array = create_fixed_size_list_array(
             &mut FixedSizeListBuilder::new(Int32Builder::new(10), 3),
-            &[Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
+            [Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
         )
         .unwrap();
         let json_array: Value = serde_json::from_str(
@@ -589,7 +589,7 @@ mod tests {
         // Test unequal case
         let arrow_array = create_fixed_size_list_array(
             &mut FixedSizeListBuilder::new(Int32Builder::new(10), 3),
-            &[Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
+            [Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
         )
         .unwrap();
         let json_array: Value = serde_json::from_str(
@@ -608,7 +608,7 @@ mod tests {
         // Test incorrect type case
         let arrow_array = create_fixed_size_list_array(
             &mut FixedSizeListBuilder::new(Int32Builder::new(10), 3),
-            &[Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
+            [Some(&[1, 2, 3]), None, Some(&[4, 5, 6])],
         )
         .unwrap();
         let json_array: Value = serde_json::from_str(

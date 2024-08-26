@@ -208,7 +208,7 @@ impl<'a, R: ChunkReader> SerializedRowGroupReader<'a, R> {
 
 impl<'a, R: 'static + ChunkReader> RowGroupReader for SerializedRowGroupReader<'a, R> {
     fn metadata(&self) -> &RowGroupMetaData {
-        &self.metadata
+        self.metadata
     }
 
     fn num_columns(&self) -> usize {
@@ -470,7 +470,7 @@ mod tests {
     #[test]
     fn test_file_reader_into_iter() {
         let path = get_test_path("alltypes_plain.parquet");
-        let vec = vec![path.clone(), path]
+        let vec = [path.clone(), path]
             .iter()
             .map(|p| SerializedFileReader::try_from(p.as_path()).unwrap())
             .flat_map(|r| r.into_iter())
@@ -485,12 +485,12 @@ mod tests {
     #[test]
     fn test_file_reader_into_iter_project() {
         let path = get_test_path("alltypes_plain.parquet");
-        let result = vec![path]
+        let result = [path]
             .iter()
             .map(|p| SerializedFileReader::try_from(p.as_path()).unwrap())
             .flat_map(|r| {
                 let schema = "message schema { OPTIONAL INT32 id; }";
-                let proj = parse_message_type(&schema).ok();
+                let proj = parse_message_type(schema).ok();
 
                 r.into_iter().project(proj).unwrap()
             })
@@ -757,7 +757,7 @@ mod tests {
 
         assert_eq!(metadata.len(), 3);
 
-        assert_eq!(metadata.get(0).unwrap().key, "parquet.proto.descriptor");
+        assert_eq!(metadata.first().unwrap().key, "parquet.proto.descriptor");
 
         assert_eq!(metadata.get(1).unwrap().key, "writer.model.name");
         assert_eq!(metadata.get(1).unwrap().value, Some("protobuf".to_owned()));

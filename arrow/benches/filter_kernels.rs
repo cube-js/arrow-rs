@@ -29,8 +29,8 @@ fn bench_filter(data_array: &dyn Array, filter_array: &BooleanArray) {
     criterion::black_box(filter(data_array, filter_array).unwrap());
 }
 
-fn bench_built_filter<'a>(filter: &Filter<'a>, data: &impl Array) {
-    criterion::black_box(filter(&data.data()));
+fn bench_built_filter(filter: &Filter<'_>, data: &impl Array) {
+    criterion::black_box(filter(data.data()));
 }
 
 fn add_benchmark(c: &mut Criterion) {

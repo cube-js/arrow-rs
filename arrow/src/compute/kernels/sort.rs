@@ -674,7 +674,7 @@ fn sort_string_dictionary<T: ArrowDictionaryKeyType>(
     let keys: &PrimitiveArray<T> = values.keys();
 
     let dict = values.values();
-    let dict: &StringArray = as_string_array(&dict);
+    let dict: &StringArray = as_string_array(dict);
 
     sort_string_helper(
         keys,
@@ -704,7 +704,7 @@ where
 {
     let mut valids = value_indices
         .into_iter()
-        .map(|index| (index, value_fn(&values, index)))
+        .map(|index| (index, value_fn(values, index)))
         .collect::<Vec<(u32, &str)>>();
     let mut nulls = null_indices;
     let descending = options.descending;
@@ -945,11 +945,7 @@ pub(super) struct LexicographicalComparator<'a> {
 
 impl LexicographicalComparator<'_> {
     /// lexicographically compare values at the wrapped columns with given indices.
-    pub(super) fn compare<'a, 'b>(
-        &'a self,
-        a_idx: &'b usize,
-        b_idx: &'b usize,
-    ) -> Ordering {
+    pub(super) fn compare<'b>(&self, a_idx: &'b usize, b_idx: &'b usize) -> Ordering {
         for (data, comparator, sort_option) in &self.compare_items {
             match (data.is_valid(*a_idx), data.is_valid(*b_idx)) {
                 (true, true) => {
@@ -1018,7 +1014,6 @@ mod tests {
     };
     use rand::rngs::StdRng;
     use rand::{Rng, RngCore, SeedableRng};
-    use std::convert::TryFrom;
     use std::sync::Arc;
 
     fn test_sort_to_indices_boolean_arrays(
@@ -1143,7 +1138,7 @@ mod tests {
 
         assert_eq!(sorted_dict, dict);
 
-        let sorted_strings = StringArray::try_from(
+        let sorted_strings = StringArray::from(
             (0..sorted.len())
                 .map(|i| {
                     if sorted.is_valid(i) {
@@ -1153,10 +1148,8 @@ mod tests {
                     }
                 })
                 .collect::<Vec<Option<&str>>>(),
-        )
-        .expect("Unable to create string array from dictionary");
-        let expected =
-            StringArray::try_from(expected_data).expect("Unable to create string array");
+        );
+        let expected = StringArray::from(expected_data);
 
         assert_eq!(sorted_strings, expected)
     }

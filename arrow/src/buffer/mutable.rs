@@ -296,8 +296,7 @@ impl MutableBuffer {
     /// ```
     #[inline]
     pub fn extend_from_slice<T: ToByteSlice>(&mut self, items: &[T]) {
-        let len = items.len();
-        let additional = len * std::mem::size_of::<T>();
+        let additional = std::mem::size_of_val(items);
         self.reserve(additional);
         unsafe {
             let dst = self.data.as_ptr().add(self.len);

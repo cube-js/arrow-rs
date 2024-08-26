@@ -510,7 +510,7 @@ impl<T: DataType> Decoder<T> for DeltaBitPackDecoder<T> {
             // e.g. i64::MAX - i64::MIN, so we use `wrapping_add` to "overflow" again and
             // restore original value.
             self.current_value = self.current_value.wrapping_add(self.min_delta);
-            self.current_value = self.current_value.wrapping_add(delta as i64);
+            self.current_value = self.current_value.wrapping_add(delta);
             self.set_decoded_value(buffer, i, self.current_value);
             self.values_current_mini_block -= 1;
         }
@@ -711,7 +711,7 @@ impl<T: DataType> DeltaByteArrayDecoder<T> {
     }
 }
 
-impl<'m, T: DataType> Decoder<T> for DeltaByteArrayDecoder<T> {
+impl<T: DataType> Decoder<T> for DeltaByteArrayDecoder<T> {
     fn set_data(&mut self, data: ByteBufferPtr, num_values: usize) -> Result<()> {
         match T::get_physical_type() {
             Type::BYTE_ARRAY | Type::FIXED_LEN_BYTE_ARRAY => {
@@ -844,9 +844,9 @@ mod tests {
 
     #[test]
     fn test_plain_decode_int32() {
-        let data = vec![42, 18, 52];
+        let data = [42, 18, 52];
         let data_bytes = Int32Type::to_byte_array(&data[..]);
-        let mut buffer = vec![0; 3];
+        let mut buffer = [0; 3];
         test_plain_decode::<Int32Type>(
             ByteBufferPtr::new(data_bytes),
             3,
@@ -861,7 +861,7 @@ mod tests {
         let data = [42, 18, 52];
         let expected_data = [0, 42, 0, 18, 0, 0, 52, 0];
         let data_bytes = Int32Type::to_byte_array(&data[..]);
-        let mut buffer = vec![0; 8];
+        let mut buffer = [0; 8];
         let num_nulls = 5;
         let valid_bits = [0b01001010];
         test_plain_decode_spaced::<Int32Type>(
@@ -877,9 +877,9 @@ mod tests {
 
     #[test]
     fn test_plain_decode_int64() {
-        let data = vec![42, 18, 52];
+        let data = [42, 18, 52];
         let data_bytes = Int64Type::to_byte_array(&data[..]);
-        let mut buffer = vec![0; 3];
+        let mut buffer = [0; 3];
         test_plain_decode::<Int64Type>(
             ByteBufferPtr::new(data_bytes),
             3,
@@ -891,9 +891,9 @@ mod tests {
 
     #[test]
     fn test_plain_decode_float() {
-        let data = vec![3.14, 2.414, 12.51];
+        let data = [3.14, 2.414, 12.51];
         let data_bytes = FloatType::to_byte_array(&data[..]);
-        let mut buffer = vec![0.0; 3];
+        let mut buffer = [0.0; 3];
         test_plain_decode::<FloatType>(
             ByteBufferPtr::new(data_bytes),
             3,
@@ -905,9 +905,9 @@ mod tests {
 
     #[test]
     fn test_plain_decode_double() {
-        let data = vec![3.14f64, 2.414f64, 12.51f64];
+        let data = [3.14f64, 2.414f64, 12.51f64];
         let data_bytes = DoubleType::to_byte_array(&data[..]);
-        let mut buffer = vec![0.0f64; 3];
+        let mut buffer = [0.0f64; 3];
         test_plain_decode::<DoubleType>(
             ByteBufferPtr::new(data_bytes),
             3,
@@ -937,11 +937,11 @@ mod tests {
 
     #[test]
     fn test_plain_decode_bool() {
-        let data = vec![
+        let data = [
             false, true, false, false, true, false, true, true, false, true,
         ];
         let data_bytes = BoolType::to_byte_array(&data[..]);
-        let mut buffer = vec![false; 10];
+        let mut buffer = [false; 10];
         test_plain_decode::<BoolType>(
             ByteBufferPtr::new(data_bytes),
             10,

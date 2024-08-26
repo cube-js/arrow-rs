@@ -447,7 +447,7 @@ fn set_column_for_json_rows(
                 struct_array_to_jsonmap_array(as_struct_array(array), row_count);
             rows.iter_mut()
                 .take(row_count)
-                .zip(inner_objs.into_iter())
+                .zip(inner_objs)
                 .for_each(|(row, obj)| {
                     row.insert(col_name.to_string(), Value::Object(obj));
                 });
@@ -482,7 +482,7 @@ fn set_column_for_json_rows(
         }
         DataType::Dictionary(_, value_type) => {
             let slice = array.slice(0, row_count);
-            let hydrated = crate::compute::kernels::cast::cast(&slice, &value_type)
+            let hydrated = crate::compute::kernels::cast::cast(&slice, value_type)
                 .expect("cannot cast dictionary to underlying values");
             set_column_for_json_rows(rows, row_count, &hydrated, col_name)
         }

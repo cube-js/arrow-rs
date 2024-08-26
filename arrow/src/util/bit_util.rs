@@ -173,7 +173,7 @@ mod tests {
     #[test]
     fn test_get_bit_raw() {
         const NUM_BYTE: usize = 10;
-        let mut buf = vec![0; NUM_BYTE];
+        let mut buf = [0; NUM_BYTE];
         let mut expected = vec![];
         let mut rng = seedable_rng();
         for i in 0..8 * NUM_BYTE {
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_ceil() {
         assert_eq!(ceil(0, 1), 0);
         assert_eq!(ceil(1, 1), 1);

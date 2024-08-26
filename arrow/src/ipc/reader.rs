@@ -421,7 +421,7 @@ pub fn read_record_batch(
         let triple = create_array(
             field_nodes,
             field.data_type(),
-            &buf,
+            buf,
             buffers,
             dictionaries,
             node_index,
@@ -467,10 +467,10 @@ pub fn read_dictionary(
             };
             // Read a single column
             let record_batch = read_record_batch(
-                &buf,
+                buf,
                 batch.data().unwrap(),
                 Arc::new(schema),
-                &dictionaries_by_field,
+                dictionaries_by_field,
             )?;
             Some(record_batch.column(0).clone())
         }
@@ -920,7 +920,7 @@ mod tests {
         let testdata = crate::util::test_util::arrow_test_data();
         let version = "0.14.1";
         // the test is repetitive, thus we can read all supported files at once
-        let paths = vec![
+        let paths = [
             "generated_interval",
             "generated_datetime",
             "generated_dictionary",
@@ -961,7 +961,7 @@ mod tests {
     fn read_generated_be_files_should_work() {
         // complementary to the previous test
         let testdata = crate::util::test_util::arrow_test_data();
-        let paths = vec![
+        let paths = [
             "generated_interval",
             "generated_datetime",
             "generated_dictionary",
@@ -989,7 +989,7 @@ mod tests {
         let testdata = crate::util::test_util::arrow_test_data();
         let version = "0.14.1";
         // the test is repetitive, thus we can read all supported files at once
-        let paths = vec![
+        let paths = [
             "generated_interval",
             "generated_datetime",
             "generated_dictionary",
@@ -1023,7 +1023,7 @@ mod tests {
         let testdata = crate::util::test_util::arrow_test_data();
         let version = "1.0.0-littleendian";
         // the test is repetitive, thus we can read all supported files at once
-        let paths = vec![
+        let paths = [
             "generated_interval",
             "generated_datetime",
             "generated_dictionary",
@@ -1054,7 +1054,7 @@ mod tests {
         let testdata = crate::util::test_util::arrow_test_data();
         let version = "1.0.0-littleendian";
         // the test is repetitive, thus we can read all supported files at once
-        let paths = vec![
+        let paths = [
             "generated_interval",
             "generated_datetime",
             "generated_dictionary",

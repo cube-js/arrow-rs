@@ -345,8 +345,7 @@ impl BitWriter {
         assert!(num_bits <= 64);
         assert_eq!(v.checked_shr(num_bits as u32).unwrap_or(0), 0); // covers case v >> 64
 
-        if self.byte_offset * 8 + self.bit_offset + num_bits > self.max_bytes as usize * 8
-        {
+        if self.byte_offset * 8 + self.bit_offset + num_bits > self.max_bytes * 8 {
             return false;
         }
 
@@ -382,8 +381,8 @@ impl BitWriter {
             // TODO: should we return `Result` for this func?
             return false;
         }
-        let mut ptr = result.unwrap();
-        memcpy_value(&val, num_bytes, &mut ptr);
+        let ptr = result.unwrap();
+        memcpy_value(&val, num_bytes, ptr);
         true
     }
 
@@ -571,7 +570,7 @@ impl BitReader {
                         // overwriting other memory regions.
                         if size_of::<T>() > size_of::<u32>() {
                             std::ptr::copy_nonoverlapping(
-                                out_buf[n..].as_ptr() as *const u32,
+                                out_buf[n..].as_ptr(),
                                 &mut batch[i] as *mut T as *mut u32,
                                 1,
                             );

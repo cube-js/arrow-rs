@@ -56,14 +56,11 @@ where
     Box::new(move |i, j| left.value(i).total_cmp(right.value(j)))
 }
 
-fn compare_string<T>(left: &Array, right: &Array) -> DynComparator
-where
-    T: StringOffsetSizeTrait,
-{
+fn compare_string(left: &Array, right: &Array) -> DynComparator {
     let left: StringArray = StringArray::from(left.data().clone());
     let right: StringArray = StringArray::from(right.data().clone());
 
-    Box::new(move |i, j| left.value(i).cmp(&right.value(j)))
+    Box::new(move |i, j| left.value(i).cmp(right.value(j)))
 }
 
 fn compare_dict_string<T>(left: &Array, right: &Array) -> DynComparator
@@ -83,7 +80,7 @@ where
         let key_right = right_keys.value(j).to_usize().unwrap();
         let left = left_values.value(key_left);
         let right = right_values.value(key_right);
-        left.cmp(&right)
+        left.cmp(right)
     })
 }
 
@@ -215,8 +212,8 @@ pub fn build_compare(left: &Array, right: &Array) -> Result<DynComparator> {
         (Duration(Nanosecond), Duration(Nanosecond)) => {
             compare_primitives::<DurationNanosecondType>(left, right)
         }
-        (Utf8, Utf8) => compare_string::<i32>(left, right),
-        (LargeUtf8, LargeUtf8) => compare_string::<i64>(left, right),
+        (Utf8, Utf8) => compare_string(left, right),
+        (LargeUtf8, LargeUtf8) => compare_string(left, right),
         (
             Dictionary(key_type_lhs, value_type_lhs),
             Dictionary(key_type_rhs, value_type_rhs),

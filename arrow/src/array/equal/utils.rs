@@ -121,14 +121,14 @@ pub(super) fn child_logical_null_buffer(
             let array_offset = parent_data.offset();
             let bitmap_len = bit_util::ceil(parent_len * len, 8);
             let mut buffer = MutableBuffer::from_len_zeroed(bitmap_len);
-            let mut null_slice = buffer.as_slice_mut();
+            let null_slice = buffer.as_slice_mut();
             (array_offset..parent_len + array_offset).for_each(|index| {
                 let start = index * len;
                 let end = start + len;
                 let mask = parent_bitmap.is_set(index);
                 (start..end).for_each(|child_index| {
                     if mask && self_null_bitmap.is_set(child_index) {
-                        bit_util::set_bit(&mut null_slice, child_index);
+                        bit_util::set_bit(null_slice, child_index);
                     }
                 });
             });
@@ -151,12 +151,12 @@ pub(super) fn child_logical_null_buffer(
             // slow path
             let array_offset = parent_data.offset();
             let mut buffer = MutableBuffer::new_null(parent_len);
-            let mut null_slice = buffer.as_slice_mut();
+            let null_slice = buffer.as_slice_mut();
             (0..parent_len).for_each(|index| {
                 if parent_bitmap.is_set(index + array_offset)
                     && self_null_bitmap.is_set(index + array_offset)
                 {
-                    bit_util::set_bit(&mut null_slice, index);
+                    bit_util::set_bit(null_slice, index);
                 }
             });
             Some(buffer.into())
@@ -182,7 +182,7 @@ fn logical_list_bitmap<OffsetSize: OffsetSizeTrait>(
     let offset_start = offsets.first().unwrap().to_usize().unwrap();
     let offset_len = offsets.get(parent_data.len()).unwrap().to_usize().unwrap();
     let mut buffer = MutableBuffer::new_null(offset_len - offset_start);
-    let mut null_slice = buffer.as_slice_mut();
+    let null_slice = buffer.as_slice_mut();
 
     offsets
         .windows(2)
@@ -194,7 +194,7 @@ fn logical_list_bitmap<OffsetSize: OffsetSizeTrait>(
             let mask = parent_bitmap.is_set(index);
             (start..end).for_each(|child_index| {
                 if mask && child_bitmap.is_set(child_index) {
-                    bit_util::set_bit(&mut null_slice, child_index - offset_start);
+                    bit_util::set_bit(null_slice, child_index - offset_start);
                 }
             });
         });
@@ -212,7 +212,7 @@ mod tests {
         let child_data = ArrayData::builder(DataType::Int32)
             .len(11)
             .add_buffer(Buffer::from(
-                vec![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].to_byte_slice(),
+                [1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].to_byte_slice(),
             ))
             .build();
 
@@ -222,7 +222,7 @@ mod tests {
             false,
         ))))
         .len(7)
-        .add_buffer(Buffer::from(vec![0, 0, 3, 5, 6, 9, 10, 11].to_byte_slice()))
+        .add_buffer(Buffer::from([0, 0, 3, 5, 6, 9, 10, 11].to_byte_slice()))
         .null_bit_buffer(Buffer::from(vec![0b01011010]))
         .add_child_data(child_data.clone())
         .build();
@@ -233,7 +233,7 @@ mod tests {
         let nulls = child_logical_null_buffer(
             &data,
             data.null_buffer(),
-            data.child_data().get(0).unwrap(),
+            data.child_data().first().unwrap(),
         );
         let expected = Some(Buffer::from(vec![0b11100111, 0b00000101]));
         assert_eq!(nulls, expected);
@@ -246,7 +246,7 @@ mod tests {
         ))))
         .len(4)
         .offset(3)
-        .add_buffer(Buffer::from(vec![0, 0, 3, 5, 6, 9, 10, 11].to_byte_slice()))
+        .add_buffer(Buffer::from([0, 0, 3, 5, 6, 9, 10, 11].to_byte_slice()))
         // the null_bit_buffer doesn't have an offset, i.e. cleared the 3 offset bits 0b[---]01011[010]
         .null_bit_buffer(Buffer::from(vec![0b00001011]))
         .add_child_data(child_data)
@@ -255,7 +255,7 @@ mod tests {
         let nulls = child_logical_null_buffer(
             &data,
             data.null_buffer(),
-            data.child_data().get(0).unwrap(),
+            data.child_data().first().unwrap(),
         );
 
         let expected = Some(Buffer::from(vec![0b00101111]));

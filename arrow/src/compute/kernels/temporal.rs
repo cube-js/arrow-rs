@@ -81,7 +81,7 @@ where
                     b.append_null()?;
                 } else {
                     match array.value_as_datetime(i) {
-                        Some(dt) => b.append_value(dt.year() as i32)?,
+                        Some(dt) => b.append_value(dt.year())?,
                         None => b.append_null()?,
                     }
                 }

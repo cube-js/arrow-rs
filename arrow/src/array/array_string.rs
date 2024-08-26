@@ -208,7 +208,7 @@ impl<OffsetSize: StringOffsetSizeTrait> GenericStringArray<OffsetSize> {
     }
 }
 
-impl<'a, Ptr, OffsetSize: StringOffsetSizeTrait> FromIterator<Option<Ptr>>
+impl<Ptr, OffsetSize: StringOffsetSizeTrait> FromIterator<Option<Ptr>>
     for GenericStringArray<OffsetSize>
 where
     Ptr: AsRef<str>,
@@ -264,7 +264,7 @@ impl<'a, T: StringOffsetSizeTrait> IntoIterator for &'a GenericStringArray<T> {
 impl<'a, T: StringOffsetSizeTrait> GenericStringArray<T> {
     /// constructs a new iterator
     pub fn iter(&'a self) -> GenericStringIter<'a, T> {
-        GenericStringIter::<'a, T>::new(&self)
+        GenericStringIter::<'a, T>::new(self)
     }
 }
 
@@ -401,7 +401,7 @@ mod tests {
     #[should_panic(expected = "[Large]StringArray expects Datatype::[Large]Utf8")]
     fn test_string_array_from_int() {
         let array = LargeStringArray::from(vec!["a", "b"]);
-        StringArray::from(array.data().clone());
+        let _ = StringArray::from(array.data().clone());
     }
 
     #[test]
@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_string_array_from_iter_values() {
-        let data = vec!["hello", "hello2"];
+        let data = ["hello", "hello2"];
         let array1 = StringArray::from_iter_values(data.iter());
 
         assert_eq!(array1.value(0), "hello");

@@ -126,7 +126,7 @@ fn infer_file_schema_with_csv_options<R: Read + Seek>(
     quote: Option<u8>,
     terminator: Option<u8>,
 ) -> Result<(Schema, usize)> {
-    let saved_offset = reader.seek(SeekFrom::Current(0))?;
+    let saved_offset = reader.stream_position()?;
 
     let (schema, records_count) = infer_reader_schema_with_csv_options(
         reader,
@@ -236,7 +236,7 @@ fn infer_reader_schema_with_csv_options<R: Read>(
         match possibilities.len() {
             1 => {
                 for dtype in possibilities.iter() {
-                    fields.push(Field::new(&field_name, dtype.clone(), has_nulls));
+                    fields.push(Field::new(field_name, dtype.clone(), has_nulls));
                 }
             }
             2 => {
@@ -244,13 +244,13 @@ fn infer_reader_schema_with_csv_options<R: Read>(
                     && possibilities.contains(&DataType::Float64)
                 {
                     // we have an integer and double, fall down to double
-                    fields.push(Field::new(&field_name, DataType::Float64, has_nulls));
+                    fields.push(Field::new(field_name, DataType::Float64, has_nulls));
                 } else {
                     // default to Utf8 for conflicting datatypes (e.g bool and int)
-                    fields.push(Field::new(&field_name, DataType::Utf8, has_nulls));
+                    fields.push(Field::new(field_name, DataType::Utf8, has_nulls));
                 }
             }
-            _ => fields.push(Field::new(&field_name, DataType::Utf8, has_nulls)),
+            _ => fields.push(Field::new(field_name, DataType::Utf8, has_nulls)),
         }
     }
 
@@ -480,7 +480,7 @@ impl<R: Read> Iterator for Reader<R> {
         // parse the batches into a RecordBatch
         let result = parse(
             &self.batch_records[..read_records],
-            &self.schema.fields(),
+            self.schema.fields(),
             Some(self.schema.metadata.clone()),
             &self.projection,
             self.line_number,
@@ -1419,7 +1419,7 @@ mod tests {
     #[test]
     fn test_bounded() {
         let schema = Schema::new(vec![Field::new("int", DataType::UInt32, false)]);
-        let data = vec![
+        let data = [
             vec!["0"],
             vec!["1"],
             vec!["2"],

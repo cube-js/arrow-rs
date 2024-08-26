@@ -1549,7 +1549,7 @@ impl<'a> ArrayReaderBuilder {
                             column_desc,
                             arrow_type
                         ),
-                        x => return Err(ArrowError(format!("Unsupported scale: {}", x))),
+                        x => Err(ArrowError(format!("Unsupported scale: {}", x))),
                     }
                 } else if let Some(ArrowType::Timestamp(_, tz)) = arrow_type.as_ref() {
                     // get the optional timezone information from arrow type
@@ -2523,7 +2523,7 @@ mod tests {
         let array_reader = build_array_reader(
             file_reader.metadata().file_metadata().schema_descr_ptr(),
             arrow_schema,
-            vec![0usize].into_iter(),
+            vec![0usize],
             file_reader,
         )
         .unwrap();

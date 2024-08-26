@@ -194,7 +194,7 @@ impl LevelInfo {
 
                 // Construct the child array of the list, and get its offset + mask
                 let array_data = array.data();
-                let child_data = array_data.child_data().get(0).unwrap();
+                let child_data = array_data.child_data().first().unwrap();
                 let child_array = make_array(child_data.clone());
                 let (child_offsets, child_mask) = Self::get_array_offsets_and_masks(
                     &child_array,
@@ -676,8 +676,8 @@ impl LevelInfo {
                 let data = array.data();
                 let offsets = unsafe { data.buffers()[0].typed_data::<i32>() };
                 let offsets = offsets
-                    .to_vec()
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .skip(offset)
                     .take(len + 1)
                     .map(|v| v as i64)
@@ -1310,7 +1310,7 @@ mod tests {
             });
         assert_eq!(levels.len(), 1);
 
-        let list_level = levels.get(0).unwrap();
+        let list_level = levels.first().unwrap();
 
         let expected_level = LevelInfo {
             definition: vec![0, 3, 3, 3],
@@ -1424,7 +1424,7 @@ mod tests {
         assert_eq!(levels.len(), 5);
 
         // test "a" levels
-        let list_level = levels.get(0).unwrap();
+        let list_level = levels.first().unwrap();
 
         let expected_level = LevelInfo {
             definition: vec![0, 0, 0, 0, 0],

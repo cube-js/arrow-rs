@@ -103,8 +103,8 @@ impl Seek for SliceableCursor {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         let new_pos = match pos {
             SeekFrom::Start(pos) => pos as i64,
-            SeekFrom::End(pos) => self.inner.len() as i64 + pos as i64,
-            SeekFrom::Current(pos) => self.pos as i64 + pos as i64,
+            SeekFrom::End(pos) => self.inner.len() as i64 + pos,
+            SeekFrom::Current(pos) => self.pos as i64 + pos,
         };
 
         if new_pos < 0 {
@@ -198,7 +198,7 @@ mod tests {
         let mut target = vec![];
         let cursor_res = cursor.read_to_end(&mut target);
         println!("{:?}", cursor_res);
-        assert!(!cursor_res.is_err(), "reading error");
+        assert!(cursor_res.is_ok(), "reading error");
         assert_eq!((end_included - start) as usize + 1, cursor_res.unwrap());
         assert_eq!((start..=end_included).collect::<Vec<_>>(), target);
     }

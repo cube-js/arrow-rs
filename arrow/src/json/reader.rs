@@ -644,7 +644,7 @@ impl Decoder {
         }
 
         let rows = &rows[..];
-        let projection = self.projection.clone().unwrap_or_else(Vec::new);
+        let projection = self.projection.clone().unwrap_or_default();
         let arrays = self.build_struct_array(rows, self.schema.fields(), &projection);
 
         let projected_fields: Vec<Field> = if projection.is_empty() {
@@ -652,8 +652,7 @@ impl Decoder {
         } else {
             projection
                 .iter()
-                .map(|name| self.schema.column_with_name(name))
-                .flatten()
+                .filter_map(|name| self.schema.column_with_name(name))
                 .map(|(_, field)| field.clone())
                 .collect()
         };
@@ -899,7 +898,7 @@ impl Decoder {
     fn build_boolean_array(&self, rows: &[Value], col_name: &str) -> Result<ArrayRef> {
         let mut builder = BooleanBuilder::new(rows.len());
         for row in rows {
-            if let Some(value) = row.get(&col_name) {
+            if let Some(value) = row.get(col_name) {
                 if let Some(boolean) = value.as_bool() {
                     builder.append_value(boolean)?
                 } else {
@@ -925,7 +924,7 @@ impl Decoder {
         Ok(Arc::new(
             rows.iter()
                 .map(|row| {
-                    row.get(&col_name)
+                    row.get(col_name)
                         .and_then(|value| value.as_f64())
                         .and_then(num::cast::cast)
                 })
@@ -1253,12 +1252,7 @@ impl Decoder {
                             .iter()
                             .enumerate()
                             .map(|(i, row)| {
-                                (
-                                    i,
-                                    row.as_object()
-                                        .map(|v| v.get(field.name()))
-                                        .flatten(),
-                                )
+                                (i, row.as_object().and_then(|v| v.get(field.name())))
                             })
                             .map(|(i, v)| match v {
                                 // we want the field as an object, if it's not, we treat as null
@@ -1305,7 +1299,7 @@ impl Decoder {
         let mut builder: StringDictionaryBuilder<T> =
             self.build_string_dictionary_builder(rows.len())?;
         for row in rows {
-            if let Some(value) = row.get(&col_name) {
+            if let Some(value) = row.get(col_name) {
                 if let Some(str_v) = value.as_str() {
                     builder.append(str_v).map(drop)?
                 } else {
@@ -1939,7 +1933,7 @@ mod tests {
         let mut reader = Reader::from_buf_reader(reader, Arc::new(schema), 64, None);
         let batch_gz = reader.next().unwrap().unwrap();
 
-        for batch in vec![batch, batch_gz] {
+        for batch in [batch, batch_gz] {
             assert_eq!(4, batch.num_columns());
             assert_eq!(4, batch.num_rows());
 

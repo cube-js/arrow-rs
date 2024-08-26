@@ -582,7 +582,7 @@ mod tests {
         let a = Int64Array::from(vec![1, 2, 3, 4, 5]);
 
         let batch = RecordBatch::try_new(Arc::new(schema), vec![Arc::new(a)]);
-        assert!(!batch.is_ok());
+        assert!(batch.is_err());
     }
 
     #[test]
@@ -607,7 +607,7 @@ mod tests {
         ))))
         .add_child_data(a2_child.data().clone())
         .len(2)
-        .add_buffer(Buffer::from(vec![0i32, 3, 4].to_byte_slice()))
+        .add_buffer(Buffer::from([0i32, 3, 4].to_byte_slice()))
         .build();
         let a2: ArrayRef = Arc::new(ListArray::from(a2));
         let a = ArrayDataBuilder::new(DataType::Struct(vec![
@@ -641,7 +641,7 @@ mod tests {
 
         let batch =
             RecordBatch::try_new(Arc::new(schema), vec![Arc::new(a), Arc::new(b)]);
-        assert!(!batch.is_ok());
+        assert!(batch.is_err());
     }
 
     #[test]

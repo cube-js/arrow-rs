@@ -123,9 +123,9 @@ pub(super) fn list_equal<T: OffsetSizeTrait>(
 
     // compute the child logical bitmap
     let child_lhs_nulls =
-        child_logical_null_buffer(lhs, lhs_nulls, lhs.child_data().get(0).unwrap());
+        child_logical_null_buffer(lhs, lhs_nulls, lhs.child_data().first().unwrap());
     let child_rhs_nulls =
-        child_logical_null_buffer(rhs, rhs_nulls, rhs.child_data().get(0).unwrap());
+        child_logical_null_buffer(rhs, rhs_nulls, rhs.child_data().first().unwrap());
 
     if lhs_null_count == 0 && rhs_null_count == 0 {
         lengths_equal(

@@ -55,7 +55,7 @@ use crate::schema::types::Type;
 /// information.
 #[allow(unused_must_use)]
 pub fn print_parquet_metadata(out: &mut dyn io::Write, metadata: &ParquetMetaData) {
-    print_file_metadata(out, &metadata.file_metadata());
+    print_file_metadata(out, metadata.file_metadata());
     writeln!(out);
     writeln!(out);
     writeln!(out, "num of row groups: {}", metadata.num_row_groups());
@@ -135,7 +135,7 @@ fn print_column_chunk_metadata(
     writeln!(out, "encodings: {}", encoding_strs.join(" "));
     let file_path_str = match cc_metadata.file_path() {
         None => "N/A",
-        Some(ref fp) => *fp,
+        Some(fp) => fp,
     };
     writeln!(out, "file path: {}", file_path_str);
     writeln!(out, "file offset: {}", cc_metadata.file_offset());
@@ -249,7 +249,7 @@ fn print_logical_and_converted(
         None => {
             // Also print converted type if it is available
             match converted_type {
-                ConvertedType::NONE => format!(""),
+                ConvertedType::NONE => String::new(),
                 decimal @ ConvertedType::DECIMAL => {
                     // For decimal type we should print precision and scale if they
                     // are > 0, e.g. DECIMAL(9, 2) -
@@ -259,7 +259,7 @@ fn print_logical_and_converted(
                             format!("{}, {}", p, s)
                         }
                         (p, 0) if p > 0 => format!("{}", p),
-                        _ => format!(""),
+                        _ => String::new(),
                     };
                     format!("{}{}", decimal, precision_scale)
                 }
@@ -340,7 +340,7 @@ impl<'a> Printer<'a> {
 
                 self.indent += INDENT_WIDTH;
                 for c in fields {
-                    self.print(&c);
+                    self.print(c);
                     writeln!(self.output);
                 }
                 self.indent -= INDENT_WIDTH;

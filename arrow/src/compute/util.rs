@@ -48,9 +48,9 @@ pub(super) fn combine_option_bitmap(
             None => Ok(Some(l.bit_slice(left_offset_in_bits, len_in_bits))),
 
             Some(r) => Ok(Some(buffer_bin_and(
-                &l,
+                l,
                 left_offset_in_bits,
-                &r,
+                r,
                 right_offset_in_bits,
                 len_in_bits,
             ))),
@@ -82,9 +82,9 @@ pub(super) fn compare_option_bitmap(
             None => Ok(Some(l.bit_slice(left_offset_in_bits, len_in_bits))),
 
             Some(r) => Ok(Some(buffer_bin_or(
-                &l,
+                l,
                 left_offset_in_bits,
-                &r,
+                r,
                 right_offset_in_bits,
                 len_in_bits,
             ))),
@@ -297,7 +297,7 @@ pub(super) mod tests {
                 values.append(&mut array);
             } else {
                 list_null_count += 1;
-                bit_util::unset_bit(&mut list_bitmap.as_slice_mut(), idx);
+                bit_util::unset_bit(list_bitmap.as_slice_mut(), idx);
             }
             offset.push(values.len() as i64);
         }
@@ -381,7 +381,7 @@ pub(super) mod tests {
                 values.extend(items.into_iter());
             } else {
                 list_null_count += 1;
-                bit_util::unset_bit(&mut list_bitmap.as_slice_mut(), idx);
+                bit_util::unset_bit(list_bitmap.as_slice_mut(), idx);
                 values.extend(vec![None; length as usize].into_iter());
             }
         }

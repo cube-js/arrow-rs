@@ -278,7 +278,7 @@ pub fn buffer_bin_and(
 
 // Note: do not target specific features like x86 without considering
 // other targets like wasm32, as those would fail to build
-#[cfg(all(not(any(feature = "simd", feature = "avx512"))))]
+#[cfg(not(any(feature = "simd", feature = "avx512")))]
 pub fn buffer_bin_and(
     left: &Buffer,
     left_offset_in_bits: usize,
@@ -287,7 +287,7 @@ pub fn buffer_bin_and(
     len_in_bits: usize,
 ) -> Buffer {
     bitwise_bin_op_helper(
-        &left,
+        left,
         left_offset_in_bits,
         right,
         right_offset_in_bits,
@@ -387,7 +387,7 @@ pub fn buffer_bin_or(
     }
 }
 
-#[cfg(all(not(any(feature = "simd", feature = "avx512"))))]
+#[cfg(not(any(feature = "simd", feature = "avx512")))]
 pub fn buffer_bin_or(
     left: &Buffer,
     left_offset_in_bits: usize,
@@ -396,7 +396,7 @@ pub fn buffer_bin_or(
     len_in_bits: usize,
 ) -> Buffer {
     bitwise_bin_op_helper(
-        &left,
+        left,
         left_offset_in_bits,
         right,
         right_offset_in_bits,
@@ -424,6 +424,6 @@ pub fn buffer_unary_not(
     // Default implementation
     #[allow(unreachable_code)]
     {
-        bitwise_unary_op_helper(&left, offset_in_bits, len_in_bits, |a| !a)
+        bitwise_unary_op_helper(left, offset_in_bits, len_in_bits, |a| !a)
     }
 }

@@ -300,7 +300,7 @@ impl<'a, T: ArrowPrimitiveType> IntoIterator for &'a PrimitiveArray<T> {
 impl<'a, T: ArrowPrimitiveType> PrimitiveArray<T> {
     /// constructs a new iterator
     pub fn iter(&'a self) -> PrimitiveIter<'a, T> {
-        PrimitiveIter::<'a, T>::new(&self)
+        PrimitiveIter::<'a, T>::new(self)
     }
 }
 
@@ -573,7 +573,7 @@ mod tests {
         assert_eq!(3, arr.len());
         assert_eq!(0, arr.offset());
         assert_eq!(0, arr.null_count());
-        let formatted = vec!["00:00:00.001", "10:30:00.005", "23:59:59.210"];
+        let formatted = ["00:00:00.001", "10:30:00.005", "23:59:59.210"];
         for (i, formatted) in formatted.iter().enumerate().take(3) {
             // check that we can't create dates or datetimes from time instances
             assert_eq!(None, arr.value_as_datetime(i));
@@ -597,7 +597,7 @@ mod tests {
         assert_eq!(3, arr.len());
         assert_eq!(0, arr.offset());
         assert_eq!(0, arr.null_count());
-        let formatted = vec!["00:00:00.001", "10:30:00.005", "23:59:59.210"];
+        let formatted = ["00:00:00.001", "10:30:00.005", "23:59:59.210"];
         for (i, item) in formatted.iter().enumerate().take(3) {
             // check that we can't create dates or datetimes from time instances
             assert_eq!(None, arr.value_as_datetime(i));
@@ -931,7 +931,7 @@ mod tests {
                                (values buffer)")]
     fn test_primitive_array_invalid_buffer_len() {
         let data = ArrayData::builder(DataType::Int32).len(5).build();
-        Int32Array::from(data);
+        let _ = Int32Array::from(data);
     }
 
     #[test]

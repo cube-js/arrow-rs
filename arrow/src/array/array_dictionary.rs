@@ -68,7 +68,7 @@ pub struct DictionaryArray<K: ArrowPrimitiveType> {
     is_ordered: bool,
 }
 
-impl<'a, K: ArrowPrimitiveType> DictionaryArray<K> {
+impl<K: ArrowPrimitiveType> DictionaryArray<K> {
     /// Return an array view of the keys of this dictionary as a PrimitiveArray.
     pub fn keys(&self) -> &PrimitiveArray<K> {
         &self.keys
@@ -81,8 +81,7 @@ impl<'a, K: ArrowPrimitiveType> DictionaryArray<K> {
 
         (0..rd_buf.len())
             .position(|i| rd_buf.value(i) == value)
-            .map(K::Native::from_usize)
-            .flatten()
+            .and_then(K::Native::from_usize)
     }
 
     /// Returns a reference to the dictionary values array

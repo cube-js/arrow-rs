@@ -41,7 +41,7 @@ pub async fn scenario_setup(port: &str) -> Result {
     let service = AuthBasicProtoScenarioImpl {
         username: AUTH_USERNAME.into(),
         password: AUTH_PASSWORD.into(),
-        peer_identity: Arc::new(Mutex::new(None)),
+        _peer_identity: Arc::new(Mutex::new(None)),
     };
     let addr = super::listen_on(port).await?;
     let svc = FlightServiceServer::new(service);
@@ -58,7 +58,7 @@ pub async fn scenario_setup(port: &str) -> Result {
 pub struct AuthBasicProtoScenarioImpl {
     username: Arc<str>,
     password: Arc<str>,
-    peer_identity: Arc<Mutex<Option<String>>>,
+    _peer_identity: Arc<Mutex<Option<String>>>,
 }
 
 impl AuthBasicProtoScenarioImpl {

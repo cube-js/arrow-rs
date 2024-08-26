@@ -110,7 +110,7 @@ impl<OffsetSize: OffsetSizeTrait> GenericListArray<OffsetSize> {
 
     /// constructs a new iterator
     pub fn iter<'a>(&'a self) -> GenericListArrayIter<'a, OffsetSize> {
-        GenericListArrayIter::<'a, OffsetSize>::new(&self)
+        GenericListArrayIter::<'a, OffsetSize>::new(self)
     }
 
     #[inline]
@@ -752,7 +752,7 @@ mod tests {
             .len(3)
             .add_child_data(value_data)
             .build();
-        FixedSizeListArray::from(list_data);
+        let _ = FixedSizeListArray::from(list_data);
     }
 
     #[test]
@@ -1022,7 +1022,7 @@ mod tests {
             .len(3)
             .add_child_data(value_data)
             .build();
-        ListArray::from(list_data);
+        let _ = ListArray::from(list_data);
     }
 
     #[test]
@@ -1037,7 +1037,7 @@ mod tests {
             .len(3)
             .add_buffer(value_offsets)
             .build();
-        ListArray::from(list_data);
+        let _ = ListArray::from(list_data);
     }
 
     #[test]
@@ -1057,7 +1057,7 @@ mod tests {
             .add_buffer(value_offsets)
             .add_child_data(value_data)
             .build();
-        ListArray::from(list_data);
+        let _ = ListArray::from(list_data);
     }
 
     #[test]
@@ -1067,7 +1067,7 @@ mod tests {
         let buf = unsafe { Buffer::from_raw_parts(ptr, 8, 8) };
         let buf2 = buf.slice(1);
         let array_data = ArrayData::builder(DataType::Int32).add_buffer(buf2).build();
-        Int32Array::from(array_data);
+        let _ = Int32Array::from(array_data);
     }
 
     #[test]
@@ -1088,6 +1088,6 @@ mod tests {
             .add_buffer(buf2)
             .add_child_data(value_data)
             .build();
-        ListArray::from(list_data);
+        let _ = ListArray::from(list_data);
     }
 }

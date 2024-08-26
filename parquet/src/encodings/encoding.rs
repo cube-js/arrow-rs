@@ -253,12 +253,12 @@ impl<T: DataType> DictEncoder<T> {
     pub fn write_indices(&mut self) -> Result<ByteBufferPtr> {
         // TODO: the caller should allocate the buffer
         let buffer_len = self.estimated_data_encoded_size();
-        let mut buffer: Vec<u8> = vec![0; buffer_len as usize];
-        buffer[0] = self.bit_width() as u8;
+        let mut buffer: Vec<u8> = vec![0; buffer_len];
+        buffer[0] = self.bit_width();
         self.mem_tracker.alloc(buffer.capacity() as i64);
 
         // Write bit width in the first byte
-        buffer.write_all((self.bit_width() as u8).as_bytes())?;
+        buffer.write_all(self.bit_width().as_bytes())?;
         let mut encoder = RleEncoder::new_from_buf(self.bit_width(), buffer, 1);
         for index in self.buffered_indices.data() {
             if !encoder.put(*index as u64)? {
@@ -359,7 +359,7 @@ impl<T: DataType> Encoder<T> for DictEncoder<T> {
     #[inline]
     fn put(&mut self, values: &[T::T]) -> Result<()> {
         for i in values {
-            self.put_one(&i)?
+            self.put_one(i)?
         }
         Ok(())
     }

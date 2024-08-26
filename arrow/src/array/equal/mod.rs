@@ -317,11 +317,11 @@ mod tests {
         let a = a.data();
         let b = NullArray::new(12);
         let b = b.data();
-        test_equal(&a, &b, true);
+        test_equal(a, b, true);
 
         let b = NullArray::new(10);
         let b = b.data();
-        test_equal(&a, &b, false);
+        test_equal(a, b, false);
 
         // Test the case where offset != 0
 
@@ -340,11 +340,11 @@ mod tests {
         let a = a.data();
         let b = BooleanArray::from(vec![false, false, true]);
         let b = b.data();
-        test_equal(&a, &b, true);
+        test_equal(a, b, true);
 
         let b = BooleanArray::from(vec![false, false, false]);
         let b = b.data();
-        test_equal(&a, &b, false);
+        test_equal(a, b, false);
     }
 
     #[test]
@@ -353,15 +353,15 @@ mod tests {
         let a = a.data();
         let b = BooleanArray::from(vec![Some(false), None, None, Some(true)]);
         let b = b.data();
-        test_equal(&a, &b, true);
+        test_equal(a, b, true);
 
         let b = BooleanArray::from(vec![None, None, None, Some(true)]);
         let b = b.data();
-        test_equal(&a, &b, false);
+        test_equal(a, b, false);
 
         let b = BooleanArray::from(vec![Some(true), None, None, Some(true)]);
         let b = b.data();
-        test_equal(&a, &b, false);
+        test_equal(a, b, false);
     }
 
     #[test]
@@ -392,7 +392,7 @@ mod tests {
         let a = a.data();
         let b = BooleanArray::from(vector.clone());
         let b = b.data();
-        test_equal(&a, &b, true);
+        test_equal(a, b, true);
 
         // Elements fill in `u8`s + suffix bits.
         vector.push(true);
@@ -400,7 +400,7 @@ mod tests {
         let a = a.data();
         let b = BooleanArray::from(vector);
         let b = b.data();
-        test_equal(&a, &b, true);
+        test_equal(a, b, true);
     }
 
     #[test]
@@ -438,7 +438,7 @@ mod tests {
             let lhs = lhs.data();
             let rhs = Int32Array::from(rhs);
             let rhs = rhs.data();
-            test_equal(&lhs, &rhs, expected);
+            test_equal(lhs, rhs, expected);
         }
     }
 
@@ -598,7 +598,7 @@ mod tests {
         let b = StringArray::from(vec![Some("b")]);
         let b = b.data();
 
-        test_equal(&a, &b, true);
+        test_equal(&a, b, true);
     }
 
     #[test]
@@ -619,11 +619,11 @@ mod tests {
         let a = a.data();
         let b = NullArray::new(2);
         let b = b.data();
-        test_equal(&a, &b, true);
+        test_equal(a, b, true);
 
         let b = NullArray::new(1);
         let b = b.data();
-        test_equal(&a, &b, false);
+        test_equal(a, b, false);
     }
 
     fn create_list_array<U: AsRef<[i32]>, T: AsRef<[Option<U>]>>(data: T) -> ArrayData {
@@ -641,24 +641,22 @@ mod tests {
 
     #[test]
     fn test_list_equal() {
-        let a = create_list_array(&[Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
-        let b = create_list_array(&[Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
+        let a = create_list_array([Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
+        let b = create_list_array([Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
         test_equal(&a, &b, true);
 
-        let b = create_list_array(&[Some(&[1, 2, 3]), Some(&[4, 5, 7])]);
+        let b = create_list_array([Some(&[1, 2, 3]), Some(&[4, 5, 7])]);
         test_equal(&a, &b, false);
     }
 
     // Test the case where null_count > 0
     #[test]
     fn test_list_null() {
-        let a =
-            create_list_array(&[Some(&[1, 2]), None, None, Some(&[3, 4]), None, None]);
-        let b =
-            create_list_array(&[Some(&[1, 2]), None, None, Some(&[3, 4]), None, None]);
+        let a = create_list_array([Some(&[1, 2]), None, None, Some(&[3, 4]), None, None]);
+        let b = create_list_array([Some(&[1, 2]), None, None, Some(&[3, 4]), None, None]);
         test_equal(&a, &b, true);
 
-        let b = create_list_array(&[
+        let b = create_list_array([
             Some(&[1, 2]),
             None,
             Some(&[5, 6]),
@@ -668,8 +666,7 @@ mod tests {
         ]);
         test_equal(&a, &b, false);
 
-        let b =
-            create_list_array(&[Some(&[1, 2]), None, None, Some(&[3, 5]), None, None]);
+        let b = create_list_array([Some(&[1, 2]), None, None, Some(&[3, 5]), None, None]);
         test_equal(&a, &b, false);
 
         // a list where the nullness of values is determined by the list's bitmap
@@ -680,7 +677,7 @@ mod tests {
             true,
         ))))
         .len(6)
-        .add_buffer(Buffer::from(vec![0i32, 2, 3, 4, 6, 7, 8].to_byte_slice()))
+        .add_buffer(Buffer::from([0i32, 2, 3, 4, 6, 7, 8].to_byte_slice()))
         .add_child_data(c_values.data().clone())
         .null_bit_buffer(Buffer::from(vec![0b00001001]))
         .build();
@@ -701,7 +698,7 @@ mod tests {
             true,
         ))))
         .len(6)
-        .add_buffer(Buffer::from(vec![0i32, 2, 3, 4, 6, 7, 8].to_byte_slice()))
+        .add_buffer(Buffer::from([0i32, 2, 3, 4, 6, 7, 8].to_byte_slice()))
         .add_child_data(d_values.data().clone())
         .null_bit_buffer(Buffer::from(vec![0b00001001]))
         .build();
@@ -711,10 +708,8 @@ mod tests {
     // Test the case where offset != 0
     #[test]
     fn test_list_offsets() {
-        let a =
-            create_list_array(&[Some(&[1, 2]), None, None, Some(&[3, 4]), None, None]);
-        let b =
-            create_list_array(&[Some(&[1, 2]), None, None, Some(&[3, 5]), None, None]);
+        let a = create_list_array([Some(&[1, 2]), None, None, Some(&[3, 4]), None, None]);
+        let b = create_list_array([Some(&[1, 2]), None, None, Some(&[3, 5]), None, None]);
 
         let a_slice = a.slice(0, 3);
         let b_slice = b.slice(0, 3);
@@ -746,32 +741,32 @@ mod tests {
 
     #[test]
     fn test_fixed_size_binary_equal() {
-        let a = create_fixed_size_binary_array(&[Some(b"hello"), Some(b"world")]);
-        let b = create_fixed_size_binary_array(&[Some(b"hello"), Some(b"world")]);
+        let a = create_fixed_size_binary_array([Some(b"hello"), Some(b"world")]);
+        let b = create_fixed_size_binary_array([Some(b"hello"), Some(b"world")]);
         test_equal(&a, &b, true);
 
-        let b = create_fixed_size_binary_array(&[Some(b"hello"), Some(b"arrow")]);
+        let b = create_fixed_size_binary_array([Some(b"hello"), Some(b"arrow")]);
         test_equal(&a, &b, false);
     }
 
     // Test the case where null_count > 0
     #[test]
     fn test_fixed_size_binary_null() {
-        let a = create_fixed_size_binary_array(&[Some(b"hello"), None, Some(b"world")]);
-        let b = create_fixed_size_binary_array(&[Some(b"hello"), None, Some(b"world")]);
+        let a = create_fixed_size_binary_array([Some(b"hello"), None, Some(b"world")]);
+        let b = create_fixed_size_binary_array([Some(b"hello"), None, Some(b"world")]);
         test_equal(&a, &b, true);
 
-        let b = create_fixed_size_binary_array(&[Some(b"hello"), Some(b"world"), None]);
+        let b = create_fixed_size_binary_array([Some(b"hello"), Some(b"world"), None]);
         test_equal(&a, &b, false);
 
-        let b = create_fixed_size_binary_array(&[Some(b"hello"), None, Some(b"arrow")]);
+        let b = create_fixed_size_binary_array([Some(b"hello"), None, Some(b"arrow")]);
         test_equal(&a, &b, false);
     }
 
     #[test]
     fn test_fixed_size_binary_offsets() {
         // Test the case where offset != 0
-        let a = create_fixed_size_binary_array(&[
+        let a = create_fixed_size_binary_array([
             Some(b"hello"),
             None,
             None,
@@ -779,7 +774,7 @@ mod tests {
             None,
             None,
         ]);
-        let b = create_fixed_size_binary_array(&[
+        let b = create_fixed_size_binary_array([
             Some(b"hello"),
             None,
             None,
@@ -918,18 +913,18 @@ mod tests {
 
     #[test]
     fn test_fixed_size_list_equal() {
-        let a = create_fixed_size_list_array(&[Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
-        let b = create_fixed_size_list_array(&[Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
+        let a = create_fixed_size_list_array([Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
+        let b = create_fixed_size_list_array([Some(&[1, 2, 3]), Some(&[4, 5, 6])]);
         test_equal(&a, &b, true);
 
-        let b = create_fixed_size_list_array(&[Some(&[1, 2, 3]), Some(&[4, 5, 7])]);
+        let b = create_fixed_size_list_array([Some(&[1, 2, 3]), Some(&[4, 5, 7])]);
         test_equal(&a, &b, false);
     }
 
     // Test the case where null_count > 0
     #[test]
     fn test_fixed_list_null() {
-        let a = create_fixed_size_list_array(&[
+        let a = create_fixed_size_list_array([
             Some(&[1, 2, 3]),
             None,
             None,
@@ -937,7 +932,7 @@ mod tests {
             None,
             None,
         ]);
-        let b = create_fixed_size_list_array(&[
+        let b = create_fixed_size_list_array([
             Some(&[1, 2, 3]),
             None,
             None,
@@ -947,7 +942,7 @@ mod tests {
         ]);
         test_equal(&a, &b, true);
 
-        let b = create_fixed_size_list_array(&[
+        let b = create_fixed_size_list_array([
             Some(&[1, 2, 3]),
             None,
             Some(&[7, 8, 9]),
@@ -957,7 +952,7 @@ mod tests {
         ]);
         test_equal(&a, &b, false);
 
-        let b = create_fixed_size_list_array(&[
+        let b = create_fixed_size_list_array([
             Some(&[1, 2, 3]),
             None,
             None,
@@ -971,7 +966,7 @@ mod tests {
     #[test]
     fn test_fixed_list_offsets() {
         // Test the case where offset != 0
-        let a = create_fixed_size_list_array(&[
+        let a = create_fixed_size_list_array([
             Some(&[1, 2, 3]),
             None,
             None,
@@ -979,7 +974,7 @@ mod tests {
             None,
             None,
         ]);
-        let b = create_fixed_size_list_array(&[
+        let b = create_fixed_size_list_array([
             Some(&[1, 2, 3]),
             None,
             None,
@@ -1026,7 +1021,7 @@ mod tests {
         let b = StructArray::try_from(vec![("f1", strings), ("f2", ints)]).unwrap();
         let b = b.data();
 
-        test_equal(&a, &b, true);
+        test_equal(a, b, true);
     }
 
     #[test]

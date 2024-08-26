@@ -174,7 +174,7 @@ impl<OffsetSize: BinaryOffsetSizeTrait> GenericBinaryArray<OffsetSize> {
 impl<'a, T: BinaryOffsetSizeTrait> GenericBinaryArray<T> {
     /// constructs a new iterator
     pub fn iter(&'a self) -> GenericBinaryIter<'a, T> {
-        GenericBinaryIter::<'a, T>::new(&self)
+        GenericBinaryIter::<'a, T>::new(self)
     }
 }
 
@@ -1039,7 +1039,7 @@ mod tests {
             .add_child_data(values_data)
             .build();
         let list_array = ListArray::from(array_data);
-        BinaryArray::from(list_array);
+        let _ = BinaryArray::from(list_array);
     }
 
     #[test]
@@ -1114,7 +1114,7 @@ mod tests {
         .add_child_data(values_data)
         .build();
         let list_array = FixedSizeListArray::from(array_data);
-        FixedSizeBinaryArray::from(list_array);
+        let _ = FixedSizeBinaryArray::from(list_array);
     }
 
     #[test]

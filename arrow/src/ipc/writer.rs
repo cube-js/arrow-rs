@@ -190,7 +190,7 @@ impl IpcDataGenerator {
         for array in batch.columns() {
             let array_data = array.data();
             offset = write_array_data(
-                &array_data,
+                array_data,
                 &mut buffers,
                 &mut arrow_data,
                 &mut nodes,
@@ -243,7 +243,7 @@ impl IpcDataGenerator {
         let mut arrow_data: Vec<u8> = vec![];
 
         write_array_data(
-            &array_data,
+            array_data,
             &mut buffers,
             &mut arrow_data,
             &mut nodes,
@@ -666,9 +666,10 @@ impl<W: Write> MemStreamWriter<W> {
 
         let writer = self.writer;
 
-        Ok(writer
+        let writer = writer
             .into_inner()
-            .map_err(|e| ArrowError::IoError(e.to_string()))?)
+            .map_err(|e| ArrowError::IoError(e.to_string()))?;
+        Ok(writer)
     }
 }
 
@@ -705,7 +706,7 @@ pub fn write_message<W: Write>(
 
     write_continuation(
         &mut writer,
-        &write_options,
+        write_options,
         (aligned_size - prefix_size) as i32,
     )?;
 
@@ -781,9 +782,9 @@ fn write_continuation<W: Write>(
 /// Write array data to a vector of bytes
 fn write_array_data(
     array_data: &ArrayData,
-    mut buffers: &mut Vec<ipc::Buffer>,
-    mut arrow_data: &mut Vec<u8>,
-    mut nodes: &mut Vec<ipc::FieldNode>,
+    buffers: &mut Vec<ipc::Buffer>,
+    arrow_data: &mut Vec<u8>,
+    nodes: &mut Vec<ipc::FieldNode>,
     offset: i64,
     num_rows: usize,
     null_count: usize,
@@ -804,11 +805,11 @@ fn write_array_data(
             Some(buffer) => buffer.clone(),
         };
 
-        offset = write_buffer(&null_buffer, &mut buffers, &mut arrow_data, offset);
+        offset = write_buffer(&null_buffer, buffers, arrow_data, offset);
     }
 
     array_data.buffers().iter().for_each(|buffer| {
-        offset = write_buffer(buffer, &mut buffers, &mut arrow_data, offset);
+        offset = write_buffer(buffer, buffers, arrow_data, offset);
     });
 
     if !matches!(array_data.data_type(), DataType::Dictionary(_, _)) {
@@ -817,9 +818,9 @@ fn write_array_data(
             // write the nested data (e.g list data)
             offset = write_array_data(
                 data_ref,
-                &mut buffers,
-                &mut arrow_data,
-                &mut nodes,
+                buffers,
+                arrow_data,
+                nodes,
                 offset,
                 data_ref.len(),
                 data_ref.null_count(),
@@ -1003,7 +1004,7 @@ mod tests {
         let testdata = crate::util::test_util::arrow_test_data();
         let version = "0.14.1";
         // the test is repetitive, thus we can read all supported files at once
-        let paths = vec![
+        let paths = [
             "generated_interval",
             "generated_datetime",
             "generated_dictionary",
@@ -1055,7 +1056,7 @@ mod tests {
         let testdata = crate::util::test_util::arrow_test_data();
         let version = "0.14.1";
         // the test is repetitive, thus we can read all supported files at once
-        let paths = vec![
+        let paths = [
             "generated_interval",
             "generated_datetime",
             "generated_dictionary",
@@ -1104,7 +1105,7 @@ mod tests {
         let testdata = crate::util::test_util::arrow_test_data();
         let version = "1.0.0-littleendian";
         // the test is repetitive, thus we can read all supported files at once
-        let paths = vec![
+        let paths = [
             "generated_custom_metadata",
             "generated_datetime",
             "generated_dictionary_unsigned",
@@ -1119,7 +1120,6 @@ mod tests {
             "generated_primitive_no_batches",
             "generated_primitive_zerolength",
             "generated_primitive",
-            // "generated_recursive_nested",
         ];
         paths.iter().for_each(|path| {
             let file = File::open(format!(
@@ -1167,7 +1167,7 @@ mod tests {
         let testdata = crate::util::test_util::arrow_test_data();
         let version = "1.0.0-littleendian";
         // the test is repetitive, thus we can read all supported files at once
-        let paths = vec![
+        let paths = [
             "generated_custom_metadata",
             "generated_datetime",
             "generated_dictionary_unsigned",
@@ -1182,7 +1182,6 @@ mod tests {
             "generated_primitive_no_batches",
             "generated_primitive_zerolength",
             "generated_primitive",
-            // "generated_recursive_nested",
         ];
         paths.iter().for_each(|path| {
             let file = File::open(format!(

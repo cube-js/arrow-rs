@@ -405,8 +405,8 @@ fn array_from_json(
             let null_buf = create_null_buf(&json_col);
             let children = json_col.children.clone().unwrap();
             let child_array = array_from_json(
-                &child_field,
-                children.get(0).unwrap().clone(),
+                child_field,
+                children.first().unwrap().clone(),
                 dictionaries,
             )?;
             let offsets: Vec<i32> = json_col
@@ -428,8 +428,8 @@ fn array_from_json(
             let null_buf = create_null_buf(&json_col);
             let children = json_col.children.clone().unwrap();
             let child_array = array_from_json(
-                &child_field,
-                children.get(0).unwrap().clone(),
+                child_field,
+                children.first().unwrap().clone(),
                 dictionaries,
             )?;
             let offsets: Vec<i64> = json_col
@@ -454,8 +454,8 @@ fn array_from_json(
         DataType::FixedSizeList(child_field, _) => {
             let children = json_col.children.clone().unwrap();
             let child_array = array_from_json(
-                &child_field,
-                children.get(0).unwrap().clone(),
+                child_field,
+                children.first().unwrap().clone(),
                 dictionaries,
             )?;
             let null_buf = create_null_buf(&json_col);

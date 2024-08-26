@@ -248,18 +248,18 @@ fn bit_width(data_type: &DataType, i: usize) -> Result<usize> {
         (_, 0) => 1,
         // primitive types first buffer's size is given by the native types
         (DataType::Boolean, 1) => 1,
-        (DataType::UInt8, 1) => size_of::<u8>() * 8,
-        (DataType::UInt16, 1) => size_of::<u16>() * 8,
-        (DataType::UInt32, 1) => size_of::<u32>() * 8,
-        (DataType::UInt64, 1) => size_of::<u64>() * 8,
-        (DataType::Int8, 1) => size_of::<i8>() * 8,
-        (DataType::Int16, 1) => size_of::<i16>() * 8,
-        (DataType::Int32, 1) | (DataType::Date32, 1) | (DataType::Time32(_), 1) => size_of::<i32>() * 8,
-        (DataType::Int64, 1) | (DataType::Date64, 1) | (DataType::Time64(_), 1) => size_of::<i64>() * 8,
+        (DataType::UInt8, 1) => u8::BITS as usize,
+        (DataType::UInt16, 1) => u16::BITS as usize,
+        (DataType::UInt32, 1) => u32::BITS as usize,
+        (DataType::UInt64, 1) => u64::BITS as usize,
+        (DataType::Int8, 1) => i8::BITS as usize,
+        (DataType::Int16, 1) => i16::BITS as usize,
+        (DataType::Int32, 1) | (DataType::Date32, 1) | (DataType::Time32(_), 1) => i32::BITS as usize,
+        (DataType::Int64, 1) | (DataType::Date64, 1) | (DataType::Time64(_), 1) => i64::BITS as usize,
         (DataType::Float32, 1) => size_of::<f32>() * 8,
         (DataType::Float64, 1) => size_of::<f64>() * 8,
-        (DataType::Decimal(..), 1) => size_of::<i128>() * 8,
-        (DataType::Timestamp(..), 1) => size_of::<i64>() * 8,
+        (DataType::Decimal(..), 1) => i128::BITS as usize,
+        (DataType::Timestamp(..), 1) => i64::BITS as usize,
         // primitive types have a single buffer
         (DataType::Boolean, _) |
         (DataType::UInt8, _) |
@@ -281,8 +281,8 @@ fn bit_width(data_type: &DataType, i: usize) -> Result<usize> {
         }
         // Variable-sized binaries: have two buffers.
         // "small": first buffer is i32, second is in bytes
-        (DataType::Utf8, 1) | (DataType::Binary, 1) | (DataType::List(_), 1) => size_of::<i32>() * 8,
-        (DataType::Utf8, 2) | (DataType::Binary, 2) | (DataType::List(_), 2) => size_of::<u8>() * 8,
+        (DataType::Utf8, 1) | (DataType::Binary, 1) | (DataType::List(_), 1) => i32::BITS as usize,
+        (DataType::Utf8, 2) | (DataType::Binary, 2) | (DataType::List(_), 2) => u8::BITS as usize,
         (DataType::Utf8, _) | (DataType::Binary, _) | (DataType::List(_), _)=> {
             return Err(ArrowError::CDataInterface(format!(
                 "The datatype \"{:?}\" expects 3 buffers, but requested {}. Please verify that the C data interface is correctly implemented.",
@@ -291,8 +291,8 @@ fn bit_width(data_type: &DataType, i: usize) -> Result<usize> {
         }
         // Variable-sized binaries: have two buffers.
         // LargeUtf8: first buffer is i64, second is in bytes
-        (DataType::LargeUtf8, 1) | (DataType::LargeBinary, 1) | (DataType::LargeList(_), 1) => size_of::<i64>() * 8,
-        (DataType::LargeUtf8, 2) | (DataType::LargeBinary, 2) | (DataType::LargeList(_), 2)=> size_of::<u8>() * 8,
+        (DataType::LargeUtf8, 1) | (DataType::LargeBinary, 1) | (DataType::LargeList(_), 1) => i64::BITS as usize,
+        (DataType::LargeUtf8, 2) | (DataType::LargeBinary, 2) | (DataType::LargeList(_), 2)=> u8::BITS as usize,
         (DataType::LargeUtf8, _) | (DataType::LargeBinary, _) | (DataType::LargeList(_), _)=> {
             return Err(ArrowError::CDataInterface(format!(
                 "The datatype \"{:?}\" expects 3 buffers, but requested {}. Please verify that the C data interface is correctly implemented.",
@@ -774,7 +774,7 @@ mod tests {
 
         // perform some operation
         let array = array.as_any().downcast_ref::<Int32Array>().unwrap();
-        let array = kernels::arithmetic::add(&array, &array).unwrap();
+        let array = kernels::arithmetic::add(array, array).unwrap();
 
         // verify
         assert_eq!(array, Int32Array::from(vec![2, 4, 6]));
@@ -979,7 +979,7 @@ mod tests {
 
         // perform some operation
         let array = array.as_any().downcast_ref::<BooleanArray>().unwrap();
-        let array = kernels::boolean::not(&array)?;
+        let array = kernels::boolean::not(array)?;
 
         // verify
         assert_eq!(

@@ -197,12 +197,11 @@ fn try_parse_prefix(s: &mut &str) -> Option<ParsedPrefix> {
         return None;
     }
 
-    let separator_is_space;
-    match rest[0] {
-        b' ' => separator_is_space = true,
-        b'T' => separator_is_space = false,
+    let separator_is_space = match rest[0] {
+        b' ' => true,
+        b'T' => false,
         _ => return None,
-    }
+    };
 
     rest = &rest[1..];
     let hour = try_parse_num(&mut rest)?;
@@ -246,7 +245,7 @@ fn try_parse_num(s: &mut &[u8]) -> Option<i64> {
         .parse()
         .ok();
     *s = &s[i..];
-    return res;
+    res
 }
 
 #[must_use]
@@ -328,7 +327,7 @@ mod tests {
         // Note: Use chrono APIs that are different than
         // naive_datetime_to_timestamp to compute the utc offset to
         // try and double check the logic
-        let utc_offset_secs = match Local.offset_from_local_datetime(&naive_datetime) {
+        let utc_offset_secs = match Local.offset_from_local_datetime(naive_datetime) {
             LocalResult::Single(local_offset) => {
                 local_offset.fix().local_minus_utc() as i64
             }

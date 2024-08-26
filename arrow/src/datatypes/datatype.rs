@@ -285,9 +285,9 @@ impl DataType {
                 },
                 Some(s) if s == "decimalint" => match map.get("isSigned") {
                     Some(&Value::Bool(true)) => match map.get("bitWidth") {
-                        Some(&Value::Number(ref n)) => match n.as_u64() {
+                        Some(Value::Number(n)) => match n.as_u64() {
                             Some(64) => match map.get("scale") {
-                                Some(&Value::Number(ref scale)) => match scale.as_u64() {
+                                Some(Value::Number(scale)) => match scale.as_u64() {
                                     Some(scale) => {
                                         Ok(DataType::Int64Decimal(scale as usize))
                                     }
@@ -300,7 +300,7 @@ impl DataType {
                                 )),
                             },
                             Some(96) => match map.get("scale") {
-                                Some(&Value::Number(ref scale)) => match scale.as_u64() {
+                                Some(Value::Number(scale)) => match scale.as_u64() {
                                     Some(scale) => {
                                         Ok(DataType::Int96Decimal(scale as usize))
                                     }
@@ -326,7 +326,7 @@ impl DataType {
                 },
                 Some(s) if s == "int" => match map.get("isSigned") {
                     Some(&Value::Bool(true)) => match map.get("bitWidth") {
-                        Some(&Value::Number(ref n)) => match n.as_u64() {
+                        Some(Value::Number(n)) => match n.as_u64() {
                             Some(8) => Ok(DataType::Int8),
                             Some(16) => Ok(DataType::Int16),
                             Some(32) => Ok(DataType::Int32),
@@ -341,7 +341,7 @@ impl DataType {
                         )),
                     },
                     Some(&Value::Bool(false)) => match map.get("bitWidth") {
-                        Some(&Value::Number(ref n)) => match n.as_u64() {
+                        Some(Value::Number(n)) => match n.as_u64() {
                             Some(8) => Ok(DataType::UInt8),
                             Some(16) => Ok(DataType::UInt16),
                             Some(32) => Ok(DataType::UInt32),

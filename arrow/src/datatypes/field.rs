@@ -131,7 +131,7 @@ impl Field {
         match *json {
             Value::Object(ref map) => {
                 let name = match map.get("name") {
-                    Some(&Value::String(ref name)) => name.to_string(),
+                    Some(Value::String(name)) => name.to_string(),
                     _ => {
                         return Err(ArrowError::ParseError(
                             "Field missing 'name' attribute".to_string(),
@@ -157,7 +157,7 @@ impl Field {
 
                 // Referenced example file: testing/data/arrow-ipc-stream/integration/1.0.0-littleendian/generated_custom_metadata.json.gz
                 let metadata = match map.get("metadata") {
-                    Some(&Value::Array(ref values)) => {
+                    Some(Value::Array(values)) => {
                         let mut res: BTreeMap<String, String> = BTreeMap::new();
                         for value in values {
                             match value.as_object() {
@@ -195,7 +195,7 @@ impl Field {
                     }
                     // We also support map format, because Schema's metadata supports this.
                     // See https://github.com/apache/arrow/pull/5907
-                    Some(&Value::Object(ref values)) => {
+                    Some(Value::Object(values)) => {
                         let mut res: BTreeMap<String, String> = BTreeMap::new();
                         for (k, v) in values {
                             if let Some(str_value) = v.as_str() {
@@ -257,7 +257,7 @@ impl Field {
                     DataType::Struct(mut fields) => match map.get("children") {
                         Some(Value::Array(values)) => {
                             let struct_fields: Result<Vec<Field>> =
-                                values.iter().map(|v| Field::from(v)).collect();
+                                values.iter().map(Field::from).collect();
                             fields.append(&mut struct_fields?);
                             DataType::Struct(fields)
                         }
@@ -409,7 +409,7 @@ impl Field {
                                 continue;
                             }
                             is_new_field = false;
-                            self_field.try_merge(&from_field)?;
+                            self_field.try_merge(from_field)?;
                         }
                         if is_new_field {
                             nested_fields.push(from_field.clone());

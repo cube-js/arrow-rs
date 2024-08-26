@@ -167,7 +167,7 @@ impl<'a> IntoIterator for &'a BooleanArray {
 impl<'a> BooleanArray {
     /// constructs a new iterator
     pub fn iter(&'a self) -> BooleanIter<'a> {
-        BooleanIter::<'a>::new(&self)
+        BooleanIter::<'a>::new(self)
     }
 }
 
@@ -296,6 +296,6 @@ mod tests {
                                (values buffer)")]
     fn test_boolean_array_invalid_buffer_len() {
         let data = ArrayData::builder(DataType::Boolean).len(5).build();
-        BooleanArray::from(data);
+        let _ = BooleanArray::from(data);
     }
 }

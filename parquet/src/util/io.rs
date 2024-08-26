@@ -129,6 +129,8 @@ impl<R: ParquetReader> Read for FileSource<R> {
         if self.buf_pos == self.buf_cap && buf.len() >= self.buf.len() {
             return self.skip_inner_buf(buf);
         }
+        // This warning looks like a false-positive, drop it after next toolchain bump
+        #[allow(clippy::unused_io_amount)]
         let nread = {
             let mut rem = self.fill_inner_buf()?;
             // copy the data from the inner buffer to the param buffer
@@ -168,7 +170,7 @@ impl<W: ParquetWriter> FileSink<W> {
     /// Position is set to whatever position file has.
     pub fn new(buf: &W) -> Self {
         let mut owned_buf = buf.try_clone().unwrap();
-        let pos = owned_buf.seek(SeekFrom::Current(0)).unwrap();
+        let pos = owned_buf.stream_position().unwrap();
         Self {
             buf: BufWriter::new(owned_buf),
             pos,
@@ -283,7 +285,7 @@ mod tests {
         assert_eq!(sink.pos(), 7);
 
         sink.flush().unwrap();
-        assert_eq!(sink.pos(), file.seek(SeekFrom::Current(0)).unwrap());
+        assert_eq!(sink.pos(), file.stream_position().unwrap());
 
         // Read data using file chunk
         let mut res = vec![0u8; 7];

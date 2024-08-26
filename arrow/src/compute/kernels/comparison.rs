@@ -43,10 +43,11 @@ macro_rules! compare_op {
             ));
         }
 
+        let op = $op;
         let null_bit_buffer =
             combine_option_bitmap($left.data_ref(), $right.data_ref(), $left.len())?;
 
-        let comparison = (0..$left.len()).map(|i| $op($left.value(i), $right.value(i)));
+        let comparison = (0..$left.len()).map(|i| op($left.value(i), $right.value(i)));
         // same size as $left.len() and $right.len()
         let buffer = unsafe { MutableBuffer::from_trusted_len_iter_bool(comparison) };
 
@@ -120,9 +121,10 @@ macro_rules! compare_op_primitive {
 
 macro_rules! compare_op_scalar {
     ($left: expr, $right:expr, $op:expr) => {{
+        let op = $op;
         let null_bit_buffer = $left.data().null_buffer().cloned();
 
-        let comparison = (0..$left.len()).map(|i| $op($left.value(i), $right));
+        let comparison = (0..$left.len()).map(|i| op($left.value(i), $right));
         // same as $left.len()
         let buffer = unsafe { MutableBuffer::from_trusted_len_iter_bool(comparison) };
 
@@ -1129,7 +1131,7 @@ mod tests {
         let b = Int32Array::from(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         let b_slice = b.slice(5, 5);
         let c = b_slice.as_any().downcast_ref().unwrap();
-        let d = eq(&c, &a).unwrap();
+        let d = eq(c, &a).unwrap();
         assert!(d.value(0));
         assert!(d.value(1));
         assert!(d.value(2));
@@ -1325,7 +1327,7 @@ mod tests {
         let b: Int32Array = (100..200).map(Some).collect();
         let b = b.slice(50, 50);
         let b = b.as_any().downcast_ref::<Int32Array>().unwrap();
-        let actual = lt(&a, &b).unwrap();
+        let actual = lt(a, b).unwrap();
         let expected: BooleanArray = (0..50).map(|_| Some(true)).collect();
         assert_eq!(expected, actual);
     }
@@ -1335,7 +1337,7 @@ mod tests {
         let a: Int32Array = (0..100).map(Some).collect();
         let a = a.slice(50, 50);
         let a = a.as_any().downcast_ref::<Int32Array>().unwrap();
-        let actual = lt_scalar(&a, 200).unwrap();
+        let actual = lt_scalar(a, 200).unwrap();
         let expected: BooleanArray = (0..50).map(|_| Some(true)).collect();
         assert_eq!(expected, actual);
     }
@@ -1525,7 +1527,7 @@ mod tests {
         vec!["arrow", "arrow", "arrow", "arrow", "arrow", "arrows", "arrow"],
         vec!["arrow", "ar%", "%ro%", "foo", "arr", "arrow_", "arrow_"],
         like_utf8,
-        vec![true, true, true, false, false, true, false]
+        [true, true, true, false, false, true, false]
     );
 
     test_utf8_scalar!(
@@ -1533,14 +1535,14 @@ mod tests {
         vec!["arrow", "parquet", "datafusion", "flight"],
         "%ar%",
         like_utf8_scalar,
-        vec![true, true, false, false]
+        [true, true, false, false]
     );
     test_utf8_scalar!(
         test_utf8_array_like_scalar_start,
         vec!["arrow", "parrow", "arrows", "arr"],
         "arrow%",
         like_utf8_scalar,
-        vec![true, false, true, false]
+        [true, false, true, false]
     );
 
     test_utf8_scalar!(
@@ -1548,7 +1550,7 @@ mod tests {
         vec!["arrow", "parrow", "arrows", "arr"],
         "%arrow",
         like_utf8_scalar,
-        vec![true, true, false, false]
+        [true, true, false, false]
     );
 
     test_utf8_scalar!(
@@ -1556,7 +1558,7 @@ mod tests {
         vec!["arrow", "parrow", "arrows", "arr"],
         "arrow",
         like_utf8_scalar,
-        vec![true, false, false, false]
+        [true, false, false, false]
     );
 
     test_utf8_scalar!(
@@ -1564,7 +1566,7 @@ mod tests {
         vec!["arrow", "arrows", "parrow", "arr"],
         "arrow_",
         like_utf8_scalar,
-        vec![false, true, false, false]
+        [false, true, false, false]
     );
 
     test_utf8!(
@@ -1572,14 +1574,14 @@ mod tests {
         vec!["arrow", "arrow", "arrow", "arrow", "arrow", "arrows", "arrow"],
         vec!["arrow", "ar%", "%ro%", "foo", "arr", "arrow_", "arrow_"],
         nlike_utf8,
-        vec![false, false, false, true, true, false, true]
+        [false, false, false, true, true, false, true]
     );
     test_utf8_scalar!(
         test_utf8_array_nlike_scalar,
         vec!["arrow", "parquet", "datafusion", "flight"],
         "%ar%",
         nlike_utf8_scalar,
-        vec![false, false, true, true]
+        [false, false, true, true]
     );
 
     test_utf8!(
@@ -1587,14 +1589,14 @@ mod tests {
         vec!["arrow", "arrow", "arrow", "arrow"],
         vec!["arrow", "parquet", "datafusion", "flight"],
         eq_utf8,
-        vec![true, false, false, false]
+        [true, false, false, false]
     );
     test_utf8_scalar!(
         test_utf8_array_eq_scalar,
         vec!["arrow", "parquet", "datafusion", "flight"],
         "arrow",
         eq_utf8_scalar,
-        vec![true, false, false, false]
+        [true, false, false, false]
     );
 
     test_utf8_scalar!(
@@ -1602,7 +1604,7 @@ mod tests {
         vec!["arrow", "parrow", "arrows", "arr"],
         "arrow%",
         nlike_utf8_scalar,
-        vec![false, true, false, true]
+        [false, true, false, true]
     );
 
     test_utf8_scalar!(
@@ -1610,7 +1612,7 @@ mod tests {
         vec!["arrow", "parrow", "arrows", "arr"],
         "%arrow",
         nlike_utf8_scalar,
-        vec![false, false, true, true]
+        [false, false, true, true]
     );
 
     test_utf8_scalar!(
@@ -1618,7 +1620,7 @@ mod tests {
         vec!["arrow", "parrow", "arrows", "arr"],
         "arrow",
         nlike_utf8_scalar,
-        vec![false, true, true, true]
+        [false, true, true, true]
     );
 
     test_utf8_scalar!(
@@ -1626,7 +1628,7 @@ mod tests {
         vec!["arrow", "arrows", "parrow", "arr"],
         "arrow_",
         nlike_utf8_scalar,
-        vec![true, false, true, true]
+        [true, false, true, true]
     );
 
     test_utf8!(
@@ -1634,14 +1636,14 @@ mod tests {
         vec!["arrow", "arrow", "arrow", "arrow"],
         vec!["arrow", "parquet", "datafusion", "flight"],
         neq_utf8,
-        vec![false, true, true, true]
+        [false, true, true, true]
     );
     test_utf8_scalar!(
         test_utf8_array_neq_scalar,
         vec!["arrow", "parquet", "datafusion", "flight"],
         "arrow",
         neq_utf8_scalar,
-        vec![false, true, true, true]
+        [false, true, true, true]
     );
 
     test_utf8!(
@@ -1649,14 +1651,14 @@ mod tests {
         vec!["arrow", "datafusion", "flight", "parquet"],
         vec!["flight", "flight", "flight", "flight"],
         lt_utf8,
-        vec![true, true, false, false]
+        [true, true, false, false]
     );
     test_utf8_scalar!(
         test_utf8_array_lt_scalar,
         vec!["arrow", "datafusion", "flight", "parquet"],
         "flight",
         lt_utf8_scalar,
-        vec![true, true, false, false]
+        [true, true, false, false]
     );
 
     test_utf8!(
@@ -1664,14 +1666,14 @@ mod tests {
         vec!["arrow", "datafusion", "flight", "parquet"],
         vec!["flight", "flight", "flight", "flight"],
         lt_eq_utf8,
-        vec![true, true, true, false]
+        [true, true, true, false]
     );
     test_utf8_scalar!(
         test_utf8_array_lt_eq_scalar,
         vec!["arrow", "datafusion", "flight", "parquet"],
         "flight",
         lt_eq_utf8_scalar,
-        vec![true, true, true, false]
+        [true, true, true, false]
     );
 
     test_utf8!(
@@ -1679,14 +1681,14 @@ mod tests {
         vec!["arrow", "datafusion", "flight", "parquet"],
         vec!["flight", "flight", "flight", "flight"],
         gt_utf8,
-        vec![false, false, false, true]
+        [false, false, false, true]
     );
     test_utf8_scalar!(
         test_utf8_array_gt_scalar,
         vec!["arrow", "datafusion", "flight", "parquet"],
         "flight",
         gt_utf8_scalar,
-        vec![false, false, false, true]
+        [false, false, false, true]
     );
 
     test_utf8!(
@@ -1694,13 +1696,13 @@ mod tests {
         vec!["arrow", "datafusion", "flight", "parquet"],
         vec!["flight", "flight", "flight", "flight"],
         gt_eq_utf8,
-        vec![false, false, true, true]
+        [false, false, true, true]
     );
     test_utf8_scalar!(
         test_utf8_array_gt_eq_scalar,
         vec!["arrow", "datafusion", "flight", "parquet"],
         "flight",
         gt_eq_utf8_scalar,
-        vec![false, false, true, true]
+        [false, false, true, true]
     );
 }
