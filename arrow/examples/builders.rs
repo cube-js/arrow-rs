@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#![allow(clippy::suspicious_doc_comments)]
+
 ///! Many builders are available to easily create different types of arrow arrays
 extern crate arrow;
 

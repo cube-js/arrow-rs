@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#![allow(clippy::suspicious_doc_comments)]
+
 ///! Tensor builder example
 extern crate arrow;
 

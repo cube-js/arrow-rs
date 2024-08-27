@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#![allow(clippy::suspicious_doc_comments)]
+
 ///! This example demonstrates dealing with mixed types dynamically at runtime
 use std::sync::Arc;
 
