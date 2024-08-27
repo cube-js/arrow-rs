@@ -76,6 +76,7 @@ memory-check = []
 [dev-dependencies]
 criterion = "0.3"
 flate2 = "1"
+rand = "0.8"
 tempfile = "3"
 
 [build-dependencies]
