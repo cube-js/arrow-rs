@@ -1182,7 +1182,8 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let props = Arc::new(WriterProperties::builder().set_encryption_info(encryption_key.map(|key| (key, generate_random_file_identifier()))).build());
+        let encryption_info = encryption_key.map(|key| ("a key id".to_string(), key, generate_random_file_identifier()));
+        let props = Arc::new(WriterProperties::builder().set_encryption_info(encryption_info.clone()).build());
         let mut file_writer = assert_send(
             SerializedFileWriter::new(file.try_clone().unwrap(), schema, props).unwrap(),
         );
@@ -1208,7 +1209,7 @@ mod tests {
 
         file_writer.close().unwrap();
 
-        let encryption_config = encryption_key.map(|k| ParquetEncryptionConfig::new(vec![k]).unwrap());
+        let encryption_config = encryption_info.map(|(id, k, _)| ParquetEncryptionConfig::new(vec![(id, k)]).unwrap());
         let reader = assert_send(SerializedFileReader::new_maybe_encrypted(file, &encryption_config).unwrap());
         assert_eq!(reader.num_row_groups(), data.len());
         assert_eq!(
@@ -1270,9 +1271,11 @@ mod tests {
                 .unwrap(),
         );
 
+        let encryption_info = encryption_key.map(|key| ("a key id".to_string(), key, generate_random_file_identifier()));
+
         let mut rows: i64 = 0;
         {
-            let props = Arc::new(WriterProperties::builder().set_encryption_info(encryption_key.map(|key| (key, generate_random_file_identifier()))).build());
+            let props = Arc::new(WriterProperties::builder().set_encryption_info(encryption_info.clone()).build());
             let mut writer =
                 SerializedFileWriter::new(cursor.clone(), schema, props).unwrap();
 
@@ -1300,7 +1303,7 @@ mod tests {
         let buffer = cursor.into_inner().unwrap();
 
         let reading_cursor = crate::file::serialized_reader::SliceableCursor::new(buffer);
-        let encryption_config = encryption_key.map(|k| ParquetEncryptionConfig::new(vec![k]).unwrap());
+        let encryption_config = encryption_info.map(|(id, k, _)| ParquetEncryptionConfig::new(vec![(id, k)]).unwrap());
         let reader = SerializedFileReader::new_maybe_encrypted(reading_cursor, &encryption_config).unwrap();
 
         assert_eq!(reader.num_row_groups(), data.len());
