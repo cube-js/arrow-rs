@@ -204,7 +204,7 @@ impl<W: ParquetWriter> SerializedFileWriter<W> {
         // Write file metadata (FileCryptoMetaData (if applicable) and FileMetaData)
         let start_pos = self.buf.seek(SeekFrom::Current(0))?;
 
-        if let Some((_key_id, encryption_key, random_file_identifier)) = &self.props.encryption_info {
+        if let Some((key_info, random_file_identifier)) = &self.props.encryption_info {
             // FileCryptoMetaData and FileMetadata
 
             let file_crypto_metadata = parquet::FileCryptoMetaData {
@@ -214,7 +214,7 @@ impl<W: ParquetWriter> SerializedFileWriter<W> {
                 // TODO: Maybe the user of this parquet lib will want to make their own decision
                 // about this.  Right now this library supports passing multiple read keys, and uses
                 // the Sha3-256 of the key as a key id to select the key.
-                key_metadata: Some(encryption_key.compute_key_hash().to_vec()),
+                key_metadata: Some(key_info.key.compute_key_hash().to_vec()),
             };
 
             {
@@ -231,7 +231,7 @@ impl<W: ParquetWriter> SerializedFileWriter<W> {
             }
 
             let no_aad = &[];
-            encrypt_module("FileMetaData", &mut self.buf, &encryption_key, plaintext, no_aad)?;
+            encrypt_module("FileMetaData", &mut self.buf, &key_info.key, plaintext, no_aad)?;
         } else {
             // just FileMetaData
             let mut protocol = TCompactOutputProtocol::new(&mut self.buf);
@@ -407,7 +407,7 @@ impl<W: 'static + ParquetWriter> RowGroupWriter for SerializedRowGroupWriter<W> 
         let column_ordinal: u16 = u16::try_from(self.column_index)
             .map_err(|_| general_err!("Number of columns cannot exceed {}", u16::MAX as u32 + 1))?;
         let sink = FileSink::new(&self.buf);
-        let page_writer = Box::new(SerializedPageWriter::new(sink, self.props.encryption_info.as_ref().map(|(_, k, rfi)| (*k, *rfi)), self.row_group_ordinal, column_ordinal));
+        let page_writer = Box::new(SerializedPageWriter::new(sink, self.props.encryption_info.as_ref().map(|(key_info, rfi)| (key_info.key, *rfi)), self.row_group_ordinal, column_ordinal));
         let column_writer = get_column_writer(
             self.descr.column(self.column_index),
             self.props.clone(),
@@ -643,7 +643,7 @@ mod tests {
     use crate::basic::{Compression, Encoding, IntType, LogicalType, Repetition, Type};
     use crate::column::page::PageReader;
     use crate::compression::{create_codec, Codec};
-    use crate::file::encryption::{generate_random_file_identifier, ParquetEncryptionConfig};
+    use crate::file::encryption::{generate_random_file_identifier, ParquetEncryptionConfig, ParquetEncryptionKeyInfo};
     use crate::file::reader::Length;
     use crate::file::{PARQUET_MAGIC, PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE};
     use crate::file::{
@@ -1182,7 +1182,7 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let encryption_info = encryption_key.map(|key| ("a key id".to_string(), key, generate_random_file_identifier()));
+        let encryption_info = encryption_key.map(|key| (ParquetEncryptionKeyInfo{key_id: "a key id".to_string(), key}, generate_random_file_identifier()));
         let props = Arc::new(WriterProperties::builder().set_encryption_info(encryption_info.clone()).build());
         let mut file_writer = assert_send(
             SerializedFileWriter::new(file.try_clone().unwrap(), schema, props).unwrap(),
@@ -1209,7 +1209,7 @@ mod tests {
 
         file_writer.close().unwrap();
 
-        let encryption_config = encryption_info.map(|(id, k, _)| ParquetEncryptionConfig::new(vec![(id, k)]).unwrap());
+        let encryption_config = encryption_info.map(|(key_info, _)| ParquetEncryptionConfig::new(vec![key_info]).unwrap());
         let reader = assert_send(SerializedFileReader::new_maybe_encrypted(file, &encryption_config).unwrap());
         assert_eq!(reader.num_row_groups(), data.len());
         assert_eq!(
@@ -1271,7 +1271,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let encryption_info = encryption_key.map(|key| ("a key id".to_string(), key, generate_random_file_identifier()));
+        let encryption_info = encryption_key.map(|key| (ParquetEncryptionKeyInfo{key_id: "a key id".to_string(), key}, generate_random_file_identifier()));
 
         let mut rows: i64 = 0;
         {
@@ -1303,7 +1303,7 @@ mod tests {
         let buffer = cursor.into_inner().unwrap();
 
         let reading_cursor = crate::file::serialized_reader::SliceableCursor::new(buffer);
-        let encryption_config = encryption_info.map(|(id, k, _)| ParquetEncryptionConfig::new(vec![(id, k)]).unwrap());
+        let encryption_config = encryption_info.map(|(key_info, _)| ParquetEncryptionConfig::new(vec![key_info]).unwrap());
         let reader = SerializedFileReader::new_maybe_encrypted(reading_cursor, &encryption_config).unwrap();
 
         assert_eq!(reader.num_row_groups(), data.len());

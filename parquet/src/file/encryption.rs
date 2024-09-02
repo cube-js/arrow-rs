@@ -23,7 +23,7 @@ use aes_gcm::{KeySizeUser, Tag};
 use aes_gcm::{AeadCore as _, Aes256Gcm, KeyInit as _, Nonce};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use rand::{rngs::OsRng, RngCore as _};
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
+use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_224};
 
 use crate::errors::{ParquetError, Result};
@@ -32,16 +32,22 @@ use crate::file::{PARQUET_MAGIC, PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE};
 
 pub type ParquetEncryptionKeyId = String;
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ParquetEncryptionKeyInfo {
+    pub key_id: ParquetEncryptionKeyId,
+    pub key: ParquetEncryptionKey,
+}
+
 /// Describes general parquet encryption configuration -- new files are encrypted with the
 /// write_key(), but old files can be decrypted with any of the valid read keys.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ParquetEncryptionConfig {
     // The last key is the write key, and all the keys are valid read keys.
-    keys: Vec<(ParquetEncryptionKeyId, ParquetEncryptionKey)>,
+    keys: Vec<ParquetEncryptionKeyInfo>,
 }
 
 impl ParquetEncryptionConfig {
-    pub fn new(keys: Vec<(ParquetEncryptionKeyId, ParquetEncryptionKey)>) -> Option<ParquetEncryptionConfig> {
+    pub fn new(keys: Vec<ParquetEncryptionKeyInfo>) -> Option<ParquetEncryptionConfig> {
         if keys.is_empty() {
             None
         } else {
@@ -49,12 +55,11 @@ impl ParquetEncryptionConfig {
         }
     }
 
-    pub fn write_key(&self) -> (&ParquetEncryptionKeyId, ParquetEncryptionKey) {
-        let elem_ref: &(ParquetEncryptionKeyId, ParquetEncryptionKey) = self.keys.last().unwrap();
-        (&elem_ref.0, elem_ref.1)
+    pub fn write_key(&self) -> &ParquetEncryptionKeyInfo {
+        self.keys.last().unwrap()
     }
 
-    pub fn read_keys(&self) -> &[(ParquetEncryptionKeyId, ParquetEncryptionKey)] {
+    pub fn read_keys(&self) -> &[ParquetEncryptionKeyInfo] {
         self.keys.as_slice()
     }
 }
@@ -62,20 +67,21 @@ impl ParquetEncryptionConfig {
 // Since keys are 32 bytes (being 256 bits), we use 28-byte hashes to avoid mistaking a key for a
 // key hash.
 pub const PARQUET_KEY_HASH_LENGTH: usize = 28;
+pub const PARQUET_KEY_SIZE: usize = 32;  // Aes256Gcm, hence 32 bytes
 
 /// Describes how we encrypt or encrypted the Parquet files.  Right now (in this implementation)
 /// files can only be encrypted in "encrypted footer mode" with the footer and columns all encrypted
 /// with the same key.
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct ParquetEncryptionKey {
     /// The key we use for all parts and components of the Parquet files.
-    pub key: aes_gcm::Key<Aes256Gcm>
+    pub key: [u8; PARQUET_KEY_SIZE]
 }
 
 impl ParquetEncryptionKey {
     pub fn default() -> ParquetEncryptionKey {
-        ParquetEncryptionKey{key: aes_gcm::Key::<Aes256Gcm>::default()}
+        ParquetEncryptionKey{key: Default::default()}
     }
 
     pub fn key_size() -> usize {
@@ -83,7 +89,17 @@ impl ParquetEncryptionKey {
     }
 
     pub fn generate_key() -> ParquetEncryptionKey {
-        ParquetEncryptionKey{ key: Aes256Gcm::generate_key(OsRng) }
+        let key = Aes256Gcm::generate_key(OsRng);
+        let mut result = ParquetEncryptionKey::default();
+        result.key.copy_from_slice(&key);
+        result
+    }
+
+    pub fn to_aes256_gcm_key(&self) -> aes_gcm::Key<Aes256Gcm> {
+        let mut result = aes_gcm::Key::<Aes256Gcm>::default();
+        let r: &mut [u8] = &mut result;
+        r.copy_from_slice(&self.key);
+        result
     }
 
     pub fn compute_key_hash(&self) -> [u8; PARQUET_KEY_HASH_LENGTH] {
@@ -91,34 +107,6 @@ impl ParquetEncryptionKey {
         hasher.update(&self.key);
         let result = hasher.finalize();
         result.into()
-    }
-}
-
-// TODO: This is a gross way to impl Serialize/Deserialize for ParquetEncryptionKey.
-#[derive(Serialize, Deserialize)]
-struct ParquetEncryptionKeyStandIn {
-    key: Vec<u8>,
-}
-
-impl Serialize for ParquetEncryptionKey {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-        where S: Serializer {
-        ParquetEncryptionKeyStandIn{key: self.key.to_vec()}.serialize::<S>(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for ParquetEncryptionKey {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-        where
-            D: Deserializer<'de> {
-        ParquetEncryptionKeyStandIn::deserialize(deserializer).and_then(|s| {
-            let mut k = aes_gcm::Key::<Aes256Gcm>::default();
-            if s.key.len() != k.len() {
-                return Err(D::Error::invalid_length(s.key.len(), &format!("{}", k.len()).as_ref()))
-            }
-            k.copy_from_slice(&s.key);
-            Ok(ParquetEncryptionKey{key: k})
-        })
     }
 }
 
@@ -176,7 +164,7 @@ impl PrepaddedPlaintext {
 
 /// Writes "length (4 bytes) nonce (12 bytes) ciphertext (length - 28 bytes) tag (16 bytes)"
 pub fn encrypt_module<W: Write>(what: &str, w: &mut W, encryption_key: &ParquetEncryptionKey, mut prepadded: PrepaddedPlaintext, aad: &[u8]) -> Result<()> {
-    let mut cipher = Aes256Gcm::new(&encryption_key.key);
+    let mut cipher = Aes256Gcm::new(&encryption_key.to_aes256_gcm_key());
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
     let buf = prepadded.buf_mut();
@@ -201,7 +189,7 @@ pub fn encrypt_module<W: Write>(what: &str, w: &mut W, encryption_key: &ParquetE
 }
 
 pub fn decrypt_module<R: Read>(what: &str, mut r: R, encryption_key: &ParquetEncryptionKey, aad: &[u8]) -> Result<Cursor<Vec<u8>>> {
-    let mut cipher = Aes256Gcm::new(&encryption_key.key);
+    let mut cipher = Aes256Gcm::new(&encryption_key.to_aes256_gcm_key());
 
     let buflen = r.read_u32::<LittleEndian>()?;
     let buflen = buflen as usize;

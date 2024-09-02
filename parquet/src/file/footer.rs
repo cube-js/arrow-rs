@@ -35,7 +35,7 @@ use crate::file::{
 
 use crate::schema::types::{self, SchemaDescriptor};
 
-use crate::file::{encryption::{decrypt_module, parquet_magic, ParquetEncryptionConfig, PARQUET_KEY_HASH_LENGTH, ParquetEncryptionKey, ParquetEncryptionKeyId, RandomFileIdentifier, AAD_FILE_UNIQUE_SIZE}, PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE, PARQUET_MAGIC_UNSUPPORTED_PARE};
+use crate::file::{encryption::{decrypt_module, parquet_magic, ParquetEncryptionConfig, PARQUET_KEY_HASH_LENGTH, ParquetEncryptionKey, ParquetEncryptionKeyInfo, RandomFileIdentifier, AAD_FILE_UNIQUE_SIZE}, PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE, PARQUET_MAGIC_UNSUPPORTED_PARE};
 
 fn select_key(encryption_config: &ParquetEncryptionConfig, key_metadata: &Option<Vec<u8>>) -> Result<ParquetEncryptionKey> {
     if let Some(key_id) = key_metadata {
@@ -44,10 +44,10 @@ fn select_key(encryption_config: &ParquetEncryptionConfig, key_metadata: &Option
          }
          let mut key_id_arr = [0u8; PARQUET_KEY_HASH_LENGTH];
          key_id_arr.copy_from_slice(&key_id);
-         let read_keys: &[(ParquetEncryptionKeyId, ParquetEncryptionKey)] = encryption_config.read_keys();
-         for (_, key) in read_keys {
-            if key.compute_key_hash() == key_id_arr {
-                return Ok(*key)
+         let read_keys: &[ParquetEncryptionKeyInfo] = encryption_config.read_keys();
+         for key_info in read_keys {
+            if key_info.key.compute_key_hash() == key_id_arr {
+                return Ok(key_info.key)
             }
          }
          return Err(general_err!("Parquet file is encrypted with an unknown or out-of-rotation key"));
