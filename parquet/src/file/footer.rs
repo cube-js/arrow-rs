@@ -22,7 +22,10 @@ use std::{
 };
 
 use byteorder::{ByteOrder, LittleEndian};
-use parquet_format::{ColumnOrder as TColumnOrder, FileCryptoMetaData as TFileCryptoMetaData, FileMetaData as TFileMetaData};
+use parquet_format::{
+    ColumnOrder as TColumnOrder, FileCryptoMetaData as TFileCryptoMetaData,
+    FileMetaData as TFileMetaData,
+};
 use thrift::protocol::TCompactInputProtocol;
 
 use crate::basic::ColumnOrder;
@@ -35,24 +38,40 @@ use crate::file::{
 
 use crate::schema::types::{self, SchemaDescriptor};
 
-use crate::file::{encryption::{decrypt_module, parquet_magic, ParquetEncryptionConfig, PARQUET_KEY_HASH_LENGTH, ParquetEncryptionKey, ParquetEncryptionKeyInfo, RandomFileIdentifier, AAD_FILE_UNIQUE_SIZE}, PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE, PARQUET_MAGIC_UNSUPPORTED_PARE};
+use crate::file::{
+    encryption::{
+        decrypt_module, parquet_magic, ParquetEncryptionConfig, ParquetEncryptionKey,
+        ParquetEncryptionKeyInfo, RandomFileIdentifier, AAD_FILE_UNIQUE_SIZE,
+        PARQUET_KEY_HASH_LENGTH,
+    },
+    PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE, PARQUET_MAGIC_UNSUPPORTED_PARE,
+};
 
-fn select_key(encryption_config: &ParquetEncryptionConfig, key_metadata: &Option<Vec<u8>>) -> Result<ParquetEncryptionKey> {
+fn select_key(
+    encryption_config: &ParquetEncryptionConfig,
+    key_metadata: &Option<Vec<u8>>,
+) -> Result<ParquetEncryptionKey> {
     if let Some(key_id) = key_metadata {
-         if key_id.len() != PARQUET_KEY_HASH_LENGTH {
-            return Err(general_err!("Unsupported Parquet file.  key_metadata field length is not supported"));
-         }
-         let mut key_id_arr = [0u8; PARQUET_KEY_HASH_LENGTH];
-         key_id_arr.copy_from_slice(&key_id);
-         let read_keys: &[ParquetEncryptionKeyInfo] = encryption_config.read_keys();
-         for key_info in read_keys {
+        if key_id.len() != PARQUET_KEY_HASH_LENGTH {
+            return Err(general_err!(
+                "Unsupported Parquet file.  key_metadata field length is not supported"
+            ));
+        }
+        let mut key_id_arr = [0u8; PARQUET_KEY_HASH_LENGTH];
+        key_id_arr.copy_from_slice(&key_id);
+        let read_keys: &[ParquetEncryptionKeyInfo] = encryption_config.read_keys();
+        for key_info in read_keys {
             if key_info.key.compute_key_hash() == key_id_arr {
-                return Ok(key_info.key)
+                return Ok(key_info.key);
             }
-         }
-         return Err(general_err!("Parquet file is encrypted with an unknown or out-of-rotation key"));
+        }
+        return Err(general_err!(
+            "Parquet file is encrypted with an unknown or out-of-rotation key"
+        ));
     } else {
-        return Err(general_err!("Unsupported Parquet file.  Expecting key_metadata field to be used"));
+        return Err(general_err!(
+            "Unsupported Parquet file.  Expecting key_metadata field to be used"
+        ));
     }
 }
 
@@ -64,7 +83,10 @@ fn select_key(encryption_config: &ParquetEncryptionConfig, key_metadata: &Option
 ///
 /// The reader first reads DEFAULT_FOOTER_SIZE bytes from the end of the file.
 /// If it is not enough according to the length indicated in the footer, it reads more bytes.
-pub fn parse_metadata<R: ChunkReader>(chunk_reader: &R, encryption_config: &Option<ParquetEncryptionConfig>) -> Result<(ParquetMetaData, Option<ParquetEncryptionKey>)> {
+pub fn parse_metadata<R: ChunkReader>(
+    chunk_reader: &R,
+    encryption_config: &Option<ParquetEncryptionConfig>,
+) -> Result<(ParquetMetaData, Option<ParquetEncryptionKey>)> {
     // check file is large enough to hold footer
     let file_size = chunk_reader.len();
     if file_size < (FOOTER_SIZE as u64) {
@@ -87,7 +109,9 @@ pub fn parse_metadata<R: ChunkReader>(chunk_reader: &R, encryption_config: &Opti
             if trailing_magic == PARQUET_MAGIC {
                 return Err(general_err!("Invalid Parquet file in encrypted mode.  File (or at least the Parquet footer) is not encrypted"));
             } else if trailing_magic == PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE {
-                return Err(general_err!("Invalid Parquet file in unencrypted mode.  File is encrypted"));
+                return Err(general_err!(
+                    "Invalid Parquet file in unencrypted mode.  File is encrypted"
+                ));
             } else if trailing_magic == PARQUET_MAGIC_UNSUPPORTED_PARE {
                 return Err(general_err!("Unsupported Parquet file.  File is encrypted with the standard PARE encryption format"));
             } else {
@@ -138,18 +162,22 @@ pub fn parse_metadata<R: ChunkReader>(chunk_reader: &R, encryption_config: &Opti
     if let Some(encryption_config) = encryption_config {
         let file_crypto_metadata = {
             let mut prot = TCompactInputProtocol::new(&mut metadata_read);
-            TFileCryptoMetaData::read_from_in_protocol(&mut prot)
-            .map_err(|e| ParquetError::General(format!("Could not parse crypto metadata: {}", e)))?
+            TFileCryptoMetaData::read_from_in_protocol(&mut prot).map_err(|e| {
+                ParquetError::General(format!("Could not parse crypto metadata: {}", e))
+            })?
         };
 
-        let encryption_key = select_key(encryption_config, &file_crypto_metadata.key_metadata)?;
+        let encryption_key =
+            select_key(encryption_config, &file_crypto_metadata.key_metadata)?;
 
         let mut aad_file_unique: RandomFileIdentifier;
         // TODO: What's to stop somebody from switching out aad_file_unique with their own value and then swapping components between files?
         match file_crypto_metadata.encryption_algorithm {
             parquet_format::EncryptionAlgorithm::AESGCMV1(gcmv1) => {
                 if gcmv1.aad_prefix.is_some() || gcmv1.supply_aad_prefix.is_some() {
-                    return Err(general_err!("Unsupported Parquet file. Use of aad_prefix is not expected"));
+                    return Err(general_err!(
+                        "Unsupported Parquet file. Use of aad_prefix is not expected"
+                    ));
                 }
                 if let Some(afu) = gcmv1.aad_file_unique {
                     if afu.len() != AAD_FILE_UNIQUE_SIZE {
@@ -158,16 +186,21 @@ pub fn parse_metadata<R: ChunkReader>(chunk_reader: &R, encryption_config: &Opti
                     aad_file_unique = [0u8; AAD_FILE_UNIQUE_SIZE];
                     aad_file_unique.copy_from_slice(&afu);
                 } else {
-                    return Err(general_err!("Unsupported Parquet file. aad_file_unique must be set"));
+                    return Err(general_err!(
+                        "Unsupported Parquet file. aad_file_unique must be set"
+                    ));
                 }
-            },
+            }
             parquet_format::EncryptionAlgorithm::AESGCMCTRV1(_) => {
-                return Err(general_err!("Unsupported Parquet file. AES_GCM_CTR_V1 mode is not expected"));
+                return Err(general_err!(
+                    "Unsupported Parquet file. AES_GCM_CTR_V1 mode is not expected"
+                ));
             }
         }
 
         let no_aad = &[];
-        let plaintext_cursor = decrypt_module("footer", metadata_read, &encryption_key, no_aad)?;
+        let plaintext_cursor =
+            decrypt_module("footer", metadata_read, &encryption_key, no_aad)?;
 
         metadata_read = Box::new(plaintext_cursor);
 
@@ -182,8 +215,12 @@ pub fn parse_metadata<R: ChunkReader>(chunk_reader: &R, encryption_config: &Opti
     let mut prot = TCompactInputProtocol::new(metadata_read);
     let t_file_metadata: TFileMetaData = TFileMetaData::read_from_in_protocol(&mut prot)
         .map_err(|e| ParquetError::General(format!("Could not parse metadata: {}", e)))?;
-    if t_file_metadata.encryption_algorithm.is_some() || t_file_metadata.footer_signing_key_metadata.is_some() {
-        return Err(general_err!("Unsupported Parquet file. Plaintext footer mode is not supported"));
+    if t_file_metadata.encryption_algorithm.is_some()
+        || t_file_metadata.footer_signing_key_metadata.is_some()
+    {
+        return Err(general_err!(
+            "Unsupported Parquet file. Plaintext footer mode is not supported"
+        ));
     }
 
     let schema = types::from_thrift(&t_file_metadata.schema)?;
@@ -203,11 +240,14 @@ pub fn parse_metadata<R: ChunkReader>(chunk_reader: &R, encryption_config: &Opti
         column_orders,
         random_file_identifier,
     );
-    Ok((ParquetMetaData::new_with_size(
-        file_metadata,
-        row_groups,
-        footer_metadata_len as u32,
-    ), returned_encryption_key))
+    Ok((
+        ParquetMetaData::new_with_size(
+            file_metadata,
+            row_groups,
+            footer_metadata_len as u32,
+        ),
+        returned_encryption_key,
+    ))
 }
 
 /// Parses column orders from Thrift definition.

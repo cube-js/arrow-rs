@@ -282,10 +282,15 @@ impl RowGroupMetaData {
         }
         // Notably, the function to_thrift, below, doesn't write these fields, and RowGroupMetadata doesn't have them.
         if rg.file_offset.is_some() {
-            return Err(ParquetError::NYI("Parsing RowGroup file_offset fields is not yet implemented".to_string()));
+            return Err(ParquetError::NYI(
+                "Parsing RowGroup file_offset fields is not yet implemented".to_string(),
+            ));
         }
         if rg.total_compressed_size.is_some() {
-            return Err(ParquetError::NYI("Parsing RowGroup total_compressed_size fields is not yet implemented".to_string()));
+            return Err(ParquetError::NYI(
+                "Parsing RowGroup total_compressed_size fields is not yet implemented"
+                    .to_string(),
+            ));
         }
         Ok(RowGroupMetaData {
             columns,
@@ -530,7 +535,7 @@ impl ColumnChunkMetaData {
         let dictionary_page_offset = col_metadata.dictionary_page_offset;
         let statistics = statistics::from_thrift(column_type, col_metadata.statistics);
         if col_metadata.bloom_filter_offset.is_some() {
-            return Err(ParquetError::NYI("Parsing ColumnMetaData bloom_filter_offset fields is not yet implemented".to_string()))
+            return Err(ParquetError::NYI("Parsing ColumnMetaData bloom_filter_offset fields is not yet implemented".to_string()));
         }
         let result = ColumnChunkMetaData {
             column_type,
@@ -721,12 +726,13 @@ mod tests {
             let column = ColumnChunkMetaData::builder(ptr.clone()).build().unwrap();
             columns.push(column);
         }
-        let row_group_meta = RowGroupMetaData::builder(schema_descr.clone(), TEST_ROW_GROUP_ORDINAL)
-            .set_num_rows(1000)
-            .set_total_byte_size(2000)
-            .set_column_metadata(columns)
-            .build()
-            .unwrap();
+        let row_group_meta =
+            RowGroupMetaData::builder(schema_descr.clone(), TEST_ROW_GROUP_ORDINAL)
+                .set_num_rows(1000)
+                .set_total_byte_size(2000)
+                .set_column_metadata(columns)
+                .build()
+                .unwrap();
 
         let row_group_exp = row_group_meta.to_thrift();
         let row_group_res =
@@ -741,7 +747,8 @@ mod tests {
     fn test_row_group_metadata_thrift_conversion_empty() {
         let schema_descr = get_test_schema_descr();
 
-        let row_group_meta = RowGroupMetaData::builder(schema_descr, TEST_ROW_GROUP_ORDINAL).build();
+        let row_group_meta =
+            RowGroupMetaData::builder(schema_descr, TEST_ROW_GROUP_ORDINAL).build();
 
         assert!(row_group_meta.is_err());
         if let Err(e) = row_group_meta {
@@ -809,11 +816,12 @@ mod tests {
                 .unwrap();
             columns.push(column);
         }
-        let row_group_meta = RowGroupMetaData::builder(schema_descr, TEST_ROW_GROUP_ORDINAL)
-            .set_num_rows(1000)
-            .set_column_metadata(columns)
-            .build()
-            .unwrap();
+        let row_group_meta =
+            RowGroupMetaData::builder(schema_descr, TEST_ROW_GROUP_ORDINAL)
+                .set_num_rows(1000)
+                .set_column_metadata(columns)
+                .build()
+                .unwrap();
 
         let compressed_size_res: i64 = row_group_meta.compressed_size();
         let compressed_size_exp: i64 = 1000;

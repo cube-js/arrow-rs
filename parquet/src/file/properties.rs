@@ -313,7 +313,10 @@ impl WriterPropertiesBuilder {
     }
 
     /// Sets "encryption key" property.
-    pub fn set_encryption_info(mut self, value: Option<(ParquetEncryptionKeyInfo, RandomFileIdentifier)>) -> Self {
+    pub fn set_encryption_info(
+        mut self,
+        value: Option<(ParquetEncryptionKeyInfo, RandomFileIdentifier)>,
+    ) -> Self {
         self.encryption_info = value;
         self
     }
