@@ -120,53 +120,53 @@ jobs:
           cargo run --example read_csv_infer_schema
 
   # test the --features "simd" of the arrow crate. This requires nightly.
-  linux-test-simd:
-    name: Test SIMD on AMD64 Rust ${{ matrix.rust }}
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [amd64]
-        rust: []
-    container:
-      image: ${{ matrix.arch }}/rust
-      env:
-        # Disable full debug symbol generation to speed up CI build and keep memory down
-        # "1" means line tables only, which is useful for panic tracebacks.
-        RUSTFLAGS: "-C debuginfo=1"
-        ARROW_TEST_DATA: /__w/arrow-rs/arrow-rs/testing/data
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          submodules: true
-      - name: Cache Cargo
-        uses: actions/cache@v2
-        with:
-          path: /github/home/.cargo
-          # this key equals the ones on `linux-build-lib` for re-use
-          key: cargo-cache-
-      - name: Cache Rust dependencies
-        uses: actions/cache@v2
-        with:
-          path: /github/home/target
-          # this key equals the ones on `linux-build-lib` for re-use
-          key: ${{ runner.os }}-${{ matrix.arch }}-target-cache-${{ matrix.rust }}
-      - name: Setup Rust toolchain
-        run: |
-          rustup toolchain install ${{ matrix.rust }}
-          rustup default ${{ matrix.rust }}
-          rustup component add rustfmt
-      - name: Run tests
-        run: |
-          export CARGO_HOME="/github/home/.cargo"
-          export CARGO_TARGET_DIR="/github/home/target"
-          cd arrow
-          cargo test --features "simd"
-      - name: Check new project build with simd features
-        run: |
-          export CARGO_HOME="/github/home/.cargo"
-          export CARGO_TARGET_DIR="/github/home/target"
-          cd arrow/test/dependency/simd
-          cargo check
+#  linux-test-simd:
+#    name: Test SIMD on AMD64 Rust ${{ matrix.rust }}
+#    runs-on: ubuntu-latest
+#    strategy:
+#      matrix:
+#        arch: [amd64]
+#        rust: []
+#    container:
+#      image: ${{ matrix.arch }}/rust
+#      env:
+#        # Disable full debug symbol generation to speed up CI build and keep memory down
+#        # "1" means line tables only, which is useful for panic tracebacks.
+#        RUSTFLAGS: "-C debuginfo=1"
+#        ARROW_TEST_DATA: /__w/arrow-rs/arrow-rs/testing/data
+#    steps:
+#      - uses: actions/checkout@v2
+#        with:
+#          submodules: true
+#      - name: Cache Cargo
+#        uses: actions/cache@v2
+#        with:
+#          path: /github/home/.cargo
+#          # this key equals the ones on `linux-build-lib` for re-use
+#          key: cargo-cache-
+#      - name: Cache Rust dependencies
+#        uses: actions/cache@v2
+#        with:
+#          path: /github/home/target
+#          # this key equals the ones on `linux-build-lib` for re-use
+#          key: ${{ runner.os }}-${{ matrix.arch }}-target-cache-${{ matrix.rust }}
+#      - name: Setup Rust toolchain
+#        run: |
+#          rustup toolchain install ${{ matrix.rust }}
+#          rustup default ${{ matrix.rust }}
+#          rustup component add rustfmt
+#      - name: Run tests
+#        run: |
+#          export CARGO_HOME="/github/home/.cargo"
+#          export CARGO_TARGET_DIR="/github/home/target"
+#          cd arrow
+#          cargo test --features "simd"
+#      - name: Check new project build with simd features
+#        run: |
+#          export CARGO_HOME="/github/home/.cargo"
+#          export CARGO_TARGET_DIR="/github/home/target"
+#          cd arrow/test/dependency/simd
+#          cargo check
 
   windows-and-macos:
     name: Test on ${{ matrix.os }} Rust ${{ matrix.rust }}
