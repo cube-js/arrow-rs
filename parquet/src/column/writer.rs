@@ -1036,10 +1036,6 @@ fn has_dictionary_support(kind: Type, props: &WriterProperties) -> bool {
 mod tests {
     use rand::distributions::uniform::SampleUniform;
 
-    use crate::{column::{
-        page::PageReader,
-        reader::{get_column_reader, get_typed_column_reader, ColumnReaderImpl},
-    }, file::encryption::USUAL_ENCRYPTION_OVERHEAD};
     use crate::file::{
         properties::WriterProperties, reader::SerializedPageReader,
         writer::SerializedPageWriter,
@@ -1048,6 +1044,13 @@ mod tests {
     use crate::util::{
         io::{FileSink, FileSource},
         test_common::{get_temp_file, random_numbers_range},
+    };
+    use crate::{
+        column::{
+            page::PageReader,
+            reader::{get_column_reader, get_typed_column_reader, ColumnReaderImpl},
+        },
+        file::encryption::USUAL_ENCRYPTION_OVERHEAD,
     };
 
     use super::*;
@@ -1661,7 +1664,12 @@ mod tests {
         // and no fallback occurred so far.
         let file = get_temp_file("test_column_writer_add_data_pages_with_dict", &[]);
         let sink = FileSink::new(&file);
-        let page_writer = Box::new(SerializedPageWriter::new(sink, None, TEST_ROW_GROUP_ORDINAL, TEST_COLUMN_ORDINAL));
+        let page_writer = Box::new(SerializedPageWriter::new(
+            sink,
+            None,
+            TEST_ROW_GROUP_ORDINAL,
+            TEST_COLUMN_ORDINAL,
+        ));
         let props = Arc::new(
             WriterProperties::builder()
                 .set_data_pagesize_limit(15) // actually each page will have size 15-18 bytes
@@ -1669,7 +1677,8 @@ mod tests {
                 .build(),
         );
         let data = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        let mut writer = get_test_column_writer::<Int32Type>(page_writer, 0, 0, props.clone());
+        let mut writer =
+            get_test_column_writer::<Int32Type>(page_writer, 0, 0, props.clone());
         writer.write_batch(data, None, None).unwrap();
         let (bytes_written, _, _) = writer.close().unwrap();
 
@@ -1820,7 +1829,12 @@ mod tests {
     ) {
         let file = get_temp_file(file_name, &[]);
         let sink = FileSink::new(&file);
-        let page_writer = Box::new(SerializedPageWriter::new(sink, None, TEST_ROW_GROUP_ORDINAL, TEST_COLUMN_ORDINAL));
+        let page_writer = Box::new(SerializedPageWriter::new(
+            sink,
+            None,
+            TEST_ROW_GROUP_ORDINAL,
+            TEST_COLUMN_ORDINAL,
+        ));
 
         let max_def_level = match def_levels {
             Some(buf) => *buf.iter().max().unwrap_or(&0i16),
@@ -1999,7 +2013,10 @@ mod tests {
 
     /// Returns page writer that collects pages without serializing them.
     fn get_test_page_writer() -> Box<dyn PageWriter> {
-        Box::new(TestPageWriter {simulate_encrypted: false, last_page_ordinal: None})
+        Box::new(TestPageWriter {
+            simulate_encrypted: false,
+            last_page_ordinal: None,
+        })
     }
 
     struct TestPageWriter {
@@ -2010,7 +2027,11 @@ mod tests {
     }
 
     impl PageWriter for TestPageWriter {
-        fn write_page(&mut self, page: CompressedPage, aad_page_ordinal: Option<u16>) -> Result<PageWriteSpec> {
+        fn write_page(
+            &mut self,
+            page: CompressedPage,
+            aad_page_ordinal: Option<u16>,
+        ) -> Result<PageWriteSpec> {
             // We're a bit loose in this assertion -- the caller could write or not write a dictionary page.
             match aad_page_ordinal {
                 Some(n) if n != 0 => {
@@ -2028,10 +2049,14 @@ mod tests {
             let mut res = PageWriteSpec::new();
             res.page_type = page.page_type();
             res.uncompressed_size = page.uncompressed_size();
-            res.compressed_size = self.simulate_encrypted as usize * USUAL_ENCRYPTION_OVERHEAD + page.compressed_unencrypted_size();
+            res.compressed_size = self.simulate_encrypted as usize
+                * USUAL_ENCRYPTION_OVERHEAD
+                + page.compressed_unencrypted_size();
             res.num_values = page.num_values();
             res.offset = 0;
-            res.bytes_written = (self.simulate_encrypted as usize * USUAL_ENCRYPTION_OVERHEAD + page.data().len()) as u64;
+            res.bytes_written = (self.simulate_encrypted as usize
+                * USUAL_ENCRYPTION_OVERHEAD
+                + page.data().len()) as u64;
             Ok(res)
         }
 

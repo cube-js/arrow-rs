@@ -209,7 +209,11 @@ pub trait PageWriter {
     ///
     /// This method is called for every compressed page we write into underlying buffer,
     /// either data page or dictionary page.
-    fn write_page(&mut self, page: CompressedPage, aad_page_ordinal: Option<u16>) -> Result<PageWriteSpec>;
+    fn write_page(
+        &mut self,
+        page: CompressedPage,
+        aad_page_ordinal: Option<u16>,
+    ) -> Result<PageWriteSpec>;
 
     /// Writes column chunk metadata into the output stream/sink.
     ///

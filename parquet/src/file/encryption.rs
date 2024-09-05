@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use std::io::{Cursor, Read, Write};
 use std::convert::TryFrom;
+use std::io::{Cursor, Read, Write};
 
 use aes_gcm::aead::AeadMutInPlace;
-use aes_gcm::{KeySizeUser, Tag};
 use aes_gcm::{AeadCore as _, Aes256Gcm, KeyInit as _, Nonce};
+use aes_gcm::{KeySizeUser, Tag};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use rand::{rngs::OsRng, RngCore as _};
 use serde::{Deserialize, Serialize};
@@ -51,7 +51,7 @@ impl ParquetEncryptionConfig {
         if keys.is_empty() {
             None
         } else {
-            Some(ParquetEncryptionConfig{ keys })
+            Some(ParquetEncryptionConfig { keys })
         }
     }
 
@@ -67,7 +67,7 @@ impl ParquetEncryptionConfig {
 // Since keys are 32 bytes (being 256 bits), we use 28-byte hashes to avoid mistaking a key for a
 // key hash.
 pub const PARQUET_KEY_HASH_LENGTH: usize = 28;
-pub const PARQUET_KEY_SIZE: usize = 32;  // Aes256Gcm, hence 32 bytes
+pub const PARQUET_KEY_SIZE: usize = 32; // Aes256Gcm, hence 32 bytes
 
 /// Describes how we encrypt or encrypted the Parquet files.  Right now (in this implementation)
 /// files can only be encrypted in "encrypted footer mode" with the footer and columns all encrypted
@@ -76,12 +76,14 @@ pub const PARQUET_KEY_SIZE: usize = 32;  // Aes256Gcm, hence 32 bytes
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct ParquetEncryptionKey {
     /// The key we use for all parts and components of the Parquet files.
-    pub key: [u8; PARQUET_KEY_SIZE]
+    pub key: [u8; PARQUET_KEY_SIZE],
 }
 
 impl ParquetEncryptionKey {
     pub fn default() -> ParquetEncryptionKey {
-        ParquetEncryptionKey{key: Default::default()}
+        ParquetEncryptionKey {
+            key: Default::default(),
+        }
     }
 
     pub fn key_size() -> usize {
@@ -128,11 +130,21 @@ pub fn generate_random_file_identifier() -> RandomFileIdentifier {
 pub fn parquet_magic(is_footer_encrypted: bool) -> [u8; 4] {
     // For now ParquetEncryptionKey only allows footer encryption mode.  And we use a custom "PARC"
     // magic until we have checked that we're exactly following the format spec defined with "PARE".
-    if !is_footer_encrypted { PARQUET_MAGIC } else { PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE }
+    if !is_footer_encrypted {
+        PARQUET_MAGIC
+    } else {
+        PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE
+    }
 }
 
 // TODO: Could return fixed length array or some flat array,size pair instead of allocating.
-pub fn parquet_aad_suffix(file_identifier: &RandomFileIdentifier, aad_module_type: u8, row_group_ordinal: i16, column_ordinal: u16, page_ordinal: Option<u16>) -> Vec<u8> {
+pub fn parquet_aad_suffix(
+    file_identifier: &RandomFileIdentifier,
+    aad_module_type: u8,
+    row_group_ordinal: i16,
+    column_ordinal: u16,
+    page_ordinal: Option<u16>,
+) -> Vec<u8> {
     let mut aad = Vec::<u8>::new();
     aad.extend_from_slice(file_identifier);
     aad.push(aad_module_type);
@@ -155,7 +167,7 @@ impl PrepaddedPlaintext {
     /// Constructs a buf for appending with plaintext and passing to encrypt_module.  It is
     /// recommended that you use the result of self.buf_mut() as a `Write` to append the plaintext.
     pub fn new() -> PrepaddedPlaintext {
-        PrepaddedPlaintext{buf: vec![0u8; 16]}
+        PrepaddedPlaintext { buf: vec![0u8; 16] }
     }
     pub fn buf_mut(&mut self) -> &mut Vec<u8> {
         &mut self.buf
@@ -163,7 +175,13 @@ impl PrepaddedPlaintext {
 }
 
 /// Writes "length (4 bytes) nonce (12 bytes) ciphertext (length - 28 bytes) tag (16 bytes)"
-pub fn encrypt_module<W: Write>(what: &str, w: &mut W, encryption_key: &ParquetEncryptionKey, mut prepadded: PrepaddedPlaintext, aad: &[u8]) -> Result<()> {
+pub fn encrypt_module<W: Write>(
+    what: &str,
+    w: &mut W,
+    encryption_key: &ParquetEncryptionKey,
+    mut prepadded: PrepaddedPlaintext,
+    aad: &[u8],
+) -> Result<()> {
     let mut cipher = Aes256Gcm::new(&encryption_key.to_aes256_gcm_key());
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
@@ -173,12 +191,14 @@ pub fn encrypt_module<W: Write>(what: &str, w: &mut W, encryption_key: &ParquetE
     {
         let (front, plaintext) = buf.split_at_mut(4 + NONCE_SIZE);
 
-        let written_len = u32::try_from(buflen - 4 + TAG_SIZE)
-            .map_err(|_| general_err!("Error encrypting {}.  Module is too large", what))?;
+        let written_len = u32::try_from(buflen - 4 + TAG_SIZE).map_err(|_| {
+            general_err!("Error encrypting {}.  Module is too large", what)
+        })?;
         front[..4].copy_from_slice(&u32::to_le_bytes(written_len));
         front[4..].copy_from_slice(&nonce);
 
-        tag = cipher.encrypt_in_place_detached(&nonce, aad, plaintext)
+        tag = cipher
+            .encrypt_in_place_detached(&nonce, aad, plaintext)
             .map_err(|_| general_err!("Error encrypting {}", what))?;
     }
 
@@ -188,13 +208,20 @@ pub fn encrypt_module<W: Write>(what: &str, w: &mut W, encryption_key: &ParquetE
     Ok(())
 }
 
-pub fn decrypt_module<R: Read>(what: &str, mut r: R, encryption_key: &ParquetEncryptionKey, aad: &[u8]) -> Result<Cursor<Vec<u8>>> {
+pub fn decrypt_module<R: Read>(
+    what: &str,
+    mut r: R,
+    encryption_key: &ParquetEncryptionKey,
+    aad: &[u8],
+) -> Result<Cursor<Vec<u8>>> {
     let mut cipher = Aes256Gcm::new(&encryption_key.to_aes256_gcm_key());
 
     let buflen = r.read_u32::<LittleEndian>()?;
     let buflen = buflen as usize;
     if buflen < NONCE_SIZE + TAG_SIZE {
-        return Err(general_err!("Invalid Parquet file.  Encrypted buffer length too short"));
+        return Err(general_err!(
+            "Invalid Parquet file.  Encrypted buffer length too short"
+        ));
     }
     let mut buf = vec![0u8; buflen];
     r.read_exact(&mut buf)?;
@@ -202,7 +229,13 @@ pub fn decrypt_module<R: Read>(what: &str, mut r: R, encryption_key: &ParquetEnc
     let nonce = *Nonce::from_slice(&buf[..NONCE_SIZE]);
     let tag = *Tag::from_slice(&buf[buflen - TAG_SIZE..]);
 
-    cipher.decrypt_in_place_detached(&nonce, aad, &mut buf[NONCE_SIZE..buflen - TAG_SIZE], &tag)
+    cipher
+        .decrypt_in_place_detached(
+            &nonce,
+            aad,
+            &mut buf[NONCE_SIZE..buflen - TAG_SIZE],
+            &tag,
+        )
         .map_err(|_| general_err!("Error decrypting {}", what))?;
 
     // Now trim the buf of its trailing tag, and return a Cursor that skips past the nonce.

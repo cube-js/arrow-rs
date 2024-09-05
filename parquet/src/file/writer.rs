@@ -28,14 +28,14 @@ use byteorder::{ByteOrder, LittleEndian};
 use parquet_format as parquet;
 use thrift::protocol::{TCompactOutputProtocol, TOutputProtocol};
 
-use crate::{basic::PageType};
+use crate::basic::PageType;
 use crate::column::{
     page::{CompressedPage, Page, PageWriteSpec, PageWriter},
     writer::{get_column_writer, ColumnWriter},
 };
 use crate::errors::{ParquetError, Result};
 use crate::file::{
-    metadata::*, properties::{WriterPropertiesPtr},
+    metadata::*, properties::WriterPropertiesPtr,
     statistics::to_thrift as statistics_to_thrift, FOOTER_SIZE,
 };
 use crate::schema::types::{self, SchemaDescPtr, SchemaDescriptor, TypePtr};
@@ -47,7 +47,16 @@ pub use crate::util::io::TryClone;
 // Exposed publically for convenience of writing Parquet to a buffer of bytes
 pub use crate::util::cursor::InMemoryWriteableCursor;
 
-use crate::file::{encryption::{encrypt_module, parquet_aad_suffix, parquet_magic, ParquetEncryptionKey, PrepaddedPlaintext, RandomFileIdentifier, USUAL_ENCRYPTION_OVERHEAD}, serialized_reader::{COLUMNCHUNK_MODULE_TYPE, DATA_PAGE_HEADER_MODULE_TYPE, DATA_PAGE_MODULE_TYPE, DICTIONARY_PAGE_HEADER_MODULE_TYPE, DICTIONARY_PAGE_MODULE_TYPE}};
+use crate::file::{
+    encryption::{
+        encrypt_module, parquet_aad_suffix, parquet_magic, ParquetEncryptionKey,
+        PrepaddedPlaintext, RandomFileIdentifier, USUAL_ENCRYPTION_OVERHEAD,
+    },
+    serialized_reader::{
+        COLUMNCHUNK_MODULE_TYPE, DATA_PAGE_HEADER_MODULE_TYPE, DATA_PAGE_MODULE_TYPE,
+        DICTIONARY_PAGE_HEADER_MODULE_TYPE, DICTIONARY_PAGE_MODULE_TYPE,
+    },
+};
 
 // ----------------------------------------------------------------------
 // APIs for file & row group writers
@@ -208,9 +217,13 @@ impl<W: ParquetWriter> SerializedFileWriter<W> {
             // FileCryptoMetaData and FileMetadata
 
             let file_crypto_metadata = parquet::FileCryptoMetaData {
-                encryption_algorithm: parquet::EncryptionAlgorithm::AESGCMV1(parquet_format::AesGcmV1{
-                    aad_prefix: None, aad_file_unique: Some(random_file_identifier.to_vec()), supply_aad_prefix: None,
-                }),
+                encryption_algorithm: parquet::EncryptionAlgorithm::AESGCMV1(
+                    parquet_format::AesGcmV1 {
+                        aad_prefix: None,
+                        aad_file_unique: Some(random_file_identifier.to_vec()),
+                        supply_aad_prefix: None,
+                    },
+                ),
                 // TODO: Maybe the user of this parquet lib will want to make their own decision
                 // about this.  Right now this library supports passing multiple read keys, and uses
                 // the Sha3-256 of the key as a key id to select the key.
@@ -231,7 +244,13 @@ impl<W: ParquetWriter> SerializedFileWriter<W> {
             }
 
             let no_aad = &[];
-            encrypt_module("FileMetaData", &mut self.buf, &key_info.key, plaintext, no_aad)?;
+            encrypt_module(
+                "FileMetaData",
+                &mut self.buf,
+                &key_info.key,
+                plaintext,
+                no_aad,
+            )?;
         } else {
             // just FileMetaData
             let mut protocol = TCompactOutputProtocol::new(&mut self.buf);
@@ -244,7 +263,8 @@ impl<W: ParquetWriter> SerializedFileWriter<W> {
         let mut footer_buffer: [u8; FOOTER_SIZE] = [0; FOOTER_SIZE];
         let metadata_len = (end_pos - start_pos) as i32;
         LittleEndian::write_i32(&mut footer_buffer, metadata_len);
-        (&mut footer_buffer[4..]).write_all(&parquet_magic(self.props.encryption_info.is_some()))?;
+        (&mut footer_buffer[4..])
+            .write_all(&parquet_magic(self.props.encryption_info.is_some()))?;
         self.buf.write_all(&footer_buffer)?;
         Ok(file_metadata)
     }
@@ -273,8 +293,10 @@ impl<W: 'static + ParquetWriter> FileWriter for SerializedFileWriter<W> {
     fn next_row_group(&mut self) -> Result<Box<dyn RowGroupWriter>> {
         self.assert_closed()?;
         self.assert_previous_writer_closed()?;
-        let row_group_ordinal: i16 = i16::try_from(self.row_groups.len())
-            .map_err(|_| general_err!("Number of row groups cannot exceed {}", i16::MAX as i32 + 1))?;
+        let row_group_ordinal: i16 =
+            i16::try_from(self.row_groups.len()).map_err(|_| {
+                general_err!("Number of row groups cannot exceed {}", i16::MAX as i32 + 1)
+            })?;
         let row_group_writer = SerializedRowGroupWriter::new(
             self.descr.clone(),
             self.props.clone(),
@@ -404,10 +426,19 @@ impl<W: 'static + ParquetWriter> RowGroupWriter for SerializedRowGroupWriter<W> 
         if self.column_index >= self.descr.num_columns() {
             return Ok(None);
         }
-        let column_ordinal: u16 = u16::try_from(self.column_index)
-            .map_err(|_| general_err!("Number of columns cannot exceed {}", u16::MAX as u32 + 1))?;
+        let column_ordinal: u16 = u16::try_from(self.column_index).map_err(|_| {
+            general_err!("Number of columns cannot exceed {}", u16::MAX as u32 + 1)
+        })?;
         let sink = FileSink::new(&self.buf);
-        let page_writer = Box::new(SerializedPageWriter::new(sink, self.props.encryption_info.as_ref().map(|(key_info, rfi)| (key_info.key, *rfi)), self.row_group_ordinal, column_ordinal));
+        let page_writer = Box::new(SerializedPageWriter::new(
+            sink,
+            self.props
+                .encryption_info
+                .as_ref()
+                .map(|(key_info, rfi)| (key_info.key, *rfi)),
+            self.row_group_ordinal,
+            column_ordinal,
+        ));
         let column_writer = get_column_writer(
             self.descr.column(self.column_index),
             self.props.clone(),
@@ -432,11 +463,12 @@ impl<W: 'static + ParquetWriter> RowGroupWriter for SerializedRowGroupWriter<W> 
             self.assert_previous_writer_closed()?;
 
             let column_chunks = std::mem::take(&mut self.column_chunks);
-            let row_group_metadata = RowGroupMetaData::builder(self.descr.clone(), self.row_group_ordinal)
-                .set_column_metadata(column_chunks)
-                .set_total_byte_size(self.total_bytes_written as i64)
-                .set_num_rows(self.total_rows_written.unwrap_or(0) as i64)
-                .build()?;
+            let row_group_metadata =
+                RowGroupMetaData::builder(self.descr.clone(), self.row_group_ordinal)
+                    .set_column_metadata(column_chunks)
+                    .set_total_byte_size(self.total_bytes_written as i64)
+                    .set_num_rows(self.total_rows_written.unwrap_or(0) as i64)
+                    .build()?;
 
             self.row_group_metadata = Some(Arc::new(row_group_metadata));
         }
@@ -459,19 +491,39 @@ pub struct SerializedPageWriter<T: Write + Position> {
 
 impl<T: Write + Position> SerializedPageWriter<T> {
     /// Creates new page writer.
-    pub fn new(sink: T, encryption_info: Option<(ParquetEncryptionKey, RandomFileIdentifier)>, row_group_ordinal: i16, column_ordinal: u16) -> Self {
-        Self { sink, encryption_info, row_group_ordinal, column_ordinal }
+    pub fn new(
+        sink: T,
+        encryption_info: Option<(ParquetEncryptionKey, RandomFileIdentifier)>,
+        row_group_ordinal: i16,
+        column_ordinal: u16,
+    ) -> Self {
+        Self {
+            sink,
+            encryption_info,
+            row_group_ordinal,
+            column_ordinal,
+        }
     }
 
     /// Serializes page header into Thrift.
     /// aad_header_module_type needs to be the correct value that corresponds to header.page_type().
     /// Returns number of bytes that have been written into the sink.
     #[inline]
-    fn serialize_page_header(&mut self, header: parquet::PageHeader, aad_header_module_type: u8, page_ordinal: Option<u16>) -> Result<usize> {
+    fn serialize_page_header(
+        &mut self,
+        header: parquet::PageHeader,
+        aad_header_module_type: u8,
+        page_ordinal: Option<u16>,
+    ) -> Result<usize> {
         let start_pos = self.sink.pos();
         if let Some((encryption_key, random_file_identifier)) = &self.encryption_info {
-            let aad_suffix = parquet_aad_suffix(random_file_identifier, aad_header_module_type,
-                self.row_group_ordinal, self.column_ordinal, page_ordinal);
+            let aad_suffix = parquet_aad_suffix(
+                random_file_identifier,
+                aad_header_module_type,
+                self.row_group_ordinal,
+                self.column_ordinal,
+                page_ordinal,
+            );
 
             let mut plaintext = PrepaddedPlaintext::new();
             {
@@ -480,7 +532,13 @@ impl<T: Write + Position> SerializedPageWriter<T> {
                 protocol.flush()?;
             }
 
-            encrypt_module("PageHeader", &mut self.sink, encryption_key, plaintext, &aad_suffix)?;
+            encrypt_module(
+                "PageHeader",
+                &mut self.sink,
+                encryption_key,
+                plaintext,
+                &aad_suffix,
+            )?;
         } else {
             let mut protocol = TCompactOutputProtocol::new(&mut self.sink);
             header.write_to_out_protocol(&mut protocol)?;
@@ -497,8 +555,13 @@ impl<T: Write + Position> SerializedPageWriter<T> {
             // TODO: Verify that we behave the same way as other arrow implementations here, in the
             // sense that we should verify that others write out this ColumnChunk _here_ at all.
             let aad_module_type = COLUMNCHUNK_MODULE_TYPE;
-            let aad_suffix = parquet_aad_suffix(random_file_identifier, aad_module_type,
-                self.row_group_ordinal, self.column_ordinal, None);
+            let aad_suffix = parquet_aad_suffix(
+                random_file_identifier,
+                aad_module_type,
+                self.row_group_ordinal,
+                self.column_ordinal,
+                None,
+            );
 
             let mut plaintext = PrepaddedPlaintext::new();
             {
@@ -507,7 +570,13 @@ impl<T: Write + Position> SerializedPageWriter<T> {
                 protocol.flush()?;
             }
 
-            encrypt_module("ColumnChunk", &mut self.sink, encryption_key, plaintext, &aad_suffix)?;
+            encrypt_module(
+                "ColumnChunk",
+                &mut self.sink,
+                encryption_key,
+                plaintext,
+                &aad_suffix,
+            )?;
         } else {
             let mut protocol = TCompactOutputProtocol::new(&mut self.sink);
             chunk.write_to_out_protocol(&mut protocol)?;
@@ -518,10 +587,18 @@ impl<T: Write + Position> SerializedPageWriter<T> {
 }
 
 impl<T: Write + Position> PageWriter for SerializedPageWriter<T> {
-    fn write_page(&mut self, page: CompressedPage, aad_page_ordinal: Option<u16>) -> Result<PageWriteSpec> {
+    fn write_page(
+        &mut self,
+        page: CompressedPage,
+        aad_page_ordinal: Option<u16>,
+    ) -> Result<PageWriteSpec> {
         let uncompressed_size = page.uncompressed_size();
         let compressed_unencrypted_size = page.compressed_unencrypted_size();
-        let compressed_size = (if self.encryption_info.is_some() { USUAL_ENCRYPTION_OVERHEAD } else { 0 }) + compressed_unencrypted_size;
+        let compressed_size = (if self.encryption_info.is_some() {
+            USUAL_ENCRYPTION_OVERHEAD
+        } else {
+            0
+        }) + compressed_unencrypted_size;
         let num_values = page.num_values();
         let encoding = page.encoding();
         let page_type = page.page_type();
@@ -596,15 +673,30 @@ impl<T: Write + Position> PageWriter for SerializedPageWriter<T> {
         let start_pos = self.sink.pos();
 
         // TODO: header_size is after encryption -- is that what we want?  What about for uncompressed_size?
-        let header_size = self.serialize_page_header(page_header, aad_header_module_type, aad_page_ordinal)?;
+        let header_size = self.serialize_page_header(
+            page_header,
+            aad_header_module_type,
+            aad_page_ordinal,
+        )?;
 
         if let Some((encryption_key, random_file_identifier)) = &self.encryption_info {
-            let aad_suffix = parquet_aad_suffix(random_file_identifier, aad_module_type,
-                self.row_group_ordinal, self.column_ordinal, aad_page_ordinal);
+            let aad_suffix = parquet_aad_suffix(
+                random_file_identifier,
+                aad_module_type,
+                self.row_group_ordinal,
+                self.column_ordinal,
+                aad_page_ordinal,
+            );
 
             let mut plaintext = PrepaddedPlaintext::new();
             plaintext.buf_mut().extend_from_slice(page.data());
-            encrypt_module("Page data", &mut self.sink, encryption_key, plaintext, &aad_suffix)?;
+            encrypt_module(
+                "Page data",
+                &mut self.sink,
+                encryption_key,
+                plaintext,
+                &aad_suffix,
+            )?;
         } else {
             self.sink.write_all(page.data())?;
         }
@@ -643,14 +735,17 @@ mod tests {
     use crate::basic::{Compression, Encoding, IntType, LogicalType, Repetition, Type};
     use crate::column::page::PageReader;
     use crate::compression::{create_codec, Codec};
-    use crate::file::encryption::{generate_random_file_identifier, ParquetEncryptionConfig, ParquetEncryptionKeyInfo};
+    use crate::file::encryption::{
+        generate_random_file_identifier, ParquetEncryptionConfig,
+        ParquetEncryptionKeyInfo,
+    };
     use crate::file::reader::Length;
-    use crate::file::{PARQUET_MAGIC, PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE};
     use crate::file::{
         properties::{WriterProperties, WriterVersion},
         reader::{FileReader, SerializedFileReader, SerializedPageReader},
         statistics::{from_thrift, to_thrift, Statistics},
     };
+    use crate::file::{PARQUET_MAGIC, PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE};
     use crate::record::RowAccessor;
     use crate::util::{memory::ByteBufferPtr, test_common::get_temp_file};
 
@@ -990,13 +1085,23 @@ mod tests {
     /// pages.
     fn test_page_roundtrip(pages: &[Page], codec: Compression, physical_type: Type) {
         test_page_roundtrip_helper(pages, codec, physical_type, &None);
-        test_page_roundtrip_helper(pages, codec, physical_type,
-            &Some((ParquetEncryptionKey::generate_key(), generate_random_file_identifier())));
+        test_page_roundtrip_helper(
+            pages,
+            codec,
+            physical_type,
+            &Some((
+                ParquetEncryptionKey::generate_key(),
+                generate_random_file_identifier(),
+            )),
+        );
     }
 
-    fn test_page_roundtrip_helper(pages: &[Page], codec: Compression, physical_type: Type,
-            encryption_info: &Option<(ParquetEncryptionKey, RandomFileIdentifier)>) {
-
+    fn test_page_roundtrip_helper(
+        pages: &[Page],
+        codec: Compression,
+        physical_type: Type,
+        encryption_info: &Option<(ParquetEncryptionKey, RandomFileIdentifier)>,
+    ) {
         let mut compressed_pages = vec![];
         let mut total_num_values = 0i64;
         let mut compressor = create_codec(codec).unwrap();
@@ -1094,9 +1199,18 @@ mod tests {
         let mut result_pages: Vec<Page> = vec![];
         {
             let cursor = Cursor::new(&mut buffer);
-            let mut page_writer = SerializedPageWriter::new(cursor, *encryption_info, TEST_ROW_GROUP_ORDINAL, TEST_COLUMN_ORDINAL);
+            let mut page_writer = SerializedPageWriter::new(
+                cursor,
+                *encryption_info,
+                TEST_ROW_GROUP_ORDINAL,
+                TEST_COLUMN_ORDINAL,
+            );
 
-            let mut page_ordinal = if has_dictionary_page { None::<u16> } else { Some(0) };
+            let mut page_ordinal = if has_dictionary_page {
+                None::<u16>
+            } else {
+                Some(0)
+            };
             for page in compressed_pages {
                 page_writer.write_page(page, page_ordinal).unwrap();
                 page_ordinal = Some(page_ordinal.map_or(0, |x| x + 1));
@@ -1166,11 +1280,19 @@ mod tests {
         assert_magic(&mut file, PARQUET_MAGIC);
         file.set_len(0).unwrap();
         file.seek(SeekFrom::Start(0)).unwrap();
-        test_file_roundtrip_with_encryption_key(file.try_clone().unwrap(), &data, &Some(ParquetEncryptionKey::generate_key()));
+        test_file_roundtrip_with_encryption_key(
+            file.try_clone().unwrap(),
+            &data,
+            &Some(ParquetEncryptionKey::generate_key()),
+        );
         assert_magic(&mut file, PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE);
     }
 
-    fn test_file_roundtrip_with_encryption_key(file: File, data: &Vec<Vec<i32>>, encryption_key: &Option<ParquetEncryptionKey>) {
+    fn test_file_roundtrip_with_encryption_key(
+        file: File,
+        data: &Vec<Vec<i32>>,
+        encryption_key: &Option<ParquetEncryptionKey>,
+    ) {
         let schema = Arc::new(
             types::Type::group_type_builder("schema")
                 .with_fields(&mut vec![Arc::new(
@@ -1182,8 +1304,20 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let encryption_info = encryption_key.map(|key| (ParquetEncryptionKeyInfo{key_id: "a key id".to_string(), key}, generate_random_file_identifier()));
-        let props = Arc::new(WriterProperties::builder().set_encryption_info(encryption_info.clone()).build());
+        let encryption_info = encryption_key.map(|key| {
+            (
+                ParquetEncryptionKeyInfo {
+                    key_id: "a key id".to_string(),
+                    key,
+                },
+                generate_random_file_identifier(),
+            )
+        });
+        let props = Arc::new(
+            WriterProperties::builder()
+                .set_encryption_info(encryption_info.clone())
+                .build(),
+        );
         let mut file_writer = assert_send(
             SerializedFileWriter::new(file.try_clone().unwrap(), schema, props).unwrap(),
         );
@@ -1209,8 +1343,11 @@ mod tests {
 
         file_writer.close().unwrap();
 
-        let encryption_config = encryption_info.map(|(key_info, _)| ParquetEncryptionConfig::new(vec![key_info]).unwrap());
-        let reader = assert_send(SerializedFileReader::new_maybe_encrypted(file, &encryption_config).unwrap());
+        let encryption_config = encryption_info
+            .map(|(key_info, _)| ParquetEncryptionConfig::new(vec![key_info]).unwrap());
+        let reader = assert_send(
+            SerializedFileReader::new_maybe_encrypted(file, &encryption_config).unwrap(),
+        );
         assert_eq!(reader.num_row_groups(), data.len());
         assert_eq!(
             reader.metadata().file_metadata().num_rows(),
@@ -1256,7 +1393,10 @@ mod tests {
         test_bytes_roundtrip_helper(&data, &Some(ParquetEncryptionKey::generate_key()));
     }
 
-    fn test_bytes_roundtrip_helper(data: &Vec<Vec<i32>>, encryption_key: &Option<ParquetEncryptionKey>) {
+    fn test_bytes_roundtrip_helper(
+        data: &Vec<Vec<i32>>,
+        encryption_key: &Option<ParquetEncryptionKey>,
+    ) {
         let cursor = InMemoryWriteableCursor::default();
 
         let schema = Arc::new(
@@ -1271,11 +1411,23 @@ mod tests {
                 .unwrap(),
         );
 
-        let encryption_info = encryption_key.map(|key| (ParquetEncryptionKeyInfo{key_id: "a key id".to_string(), key}, generate_random_file_identifier()));
+        let encryption_info = encryption_key.map(|key| {
+            (
+                ParquetEncryptionKeyInfo {
+                    key_id: "a key id".to_string(),
+                    key,
+                },
+                generate_random_file_identifier(),
+            )
+        });
 
         let mut rows: i64 = 0;
         {
-            let props = Arc::new(WriterProperties::builder().set_encryption_info(encryption_info.clone()).build());
+            let props = Arc::new(
+                WriterProperties::builder()
+                    .set_encryption_info(encryption_info.clone())
+                    .build(),
+            );
             let mut writer =
                 SerializedFileWriter::new(cursor.clone(), schema, props).unwrap();
 
@@ -1303,8 +1455,11 @@ mod tests {
         let buffer = cursor.into_inner().unwrap();
 
         let reading_cursor = crate::file::serialized_reader::SliceableCursor::new(buffer);
-        let encryption_config = encryption_info.map(|(key_info, _)| ParquetEncryptionConfig::new(vec![key_info]).unwrap());
-        let reader = SerializedFileReader::new_maybe_encrypted(reading_cursor, &encryption_config).unwrap();
+        let encryption_config = encryption_info
+            .map(|(key_info, _)| ParquetEncryptionConfig::new(vec![key_info]).unwrap());
+        let reader =
+            SerializedFileReader::new_maybe_encrypted(reading_cursor, &encryption_config)
+                .unwrap();
 
         assert_eq!(reader.num_row_groups(), data.len());
         assert_eq!(
