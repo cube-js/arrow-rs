@@ -729,8 +729,14 @@ impl<T: Write + Position> PageWriter for SerializedPageWriter<T> {
 mod tests {
     use super::*;
 
+    #[cfg(not(target_os = "windows"))]
     use std::os::unix::fs::FileExt;
-    use std::{fs::File, io::Cursor};
+    #[cfg(target_os = "windows")]
+    use std::os::windows::fs::FileExt;
+    use std::{
+        fs::File,
+        io::{Cursor, SeekFrom},
+    };
 
     use crate::basic::{Compression, Encoding, IntType, LogicalType, Repetition, Type};
     use crate::column::page::PageReader;
@@ -1261,6 +1267,7 @@ mod tests {
         assert_eq!(to_thrift(left.statistics()), to_thrift(right.statistics()));
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn assert_magic(file: &mut File, expected: [u8; 4]) {
         let length = file.len();
         // Of course the file has to be larger than just 8, but we're just sanity-checking when checking the magic.
@@ -1271,6 +1278,23 @@ mod tests {
         assert_eq!(buf, expected);
         file.read_exact_at(&mut buf[..], length - 4).unwrap();
         assert_eq!(buf, expected);
+    }
+
+    #[cfg(target_os = "windows")]
+    fn assert_magic(file: &mut File, expected: [u8; 4]) {
+        let length = file.len();
+        // Of course the file has to be larger than just 8, but we're just sanity-checking when checking the magic.
+        assert!(length >= 8);
+
+        let original_position = file.stream_position().unwrap();
+
+        let mut buf = [0xCDu8, 0xCD, 0xCD, 0xCD];
+        file.seek_read(&mut buf[..], 0).unwrap();
+        assert_eq!(buf, expected);
+        file.seek_read(&mut buf[..], length - 4).unwrap();
+        assert_eq!(buf, expected);
+
+        file.seek(SeekFrom::Start(original_position)).unwrap();
     }
 
     /// File write-read roundtrip.
