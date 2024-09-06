@@ -84,3 +84,37 @@ harness = false
 [[bench]]
 name = "arrow_array_reader"
 harness = false
+
+# Just silence all of prolematic rules in original code
+# This list should be updated during rebasing on new release, before our commits, but after toolchain updates
+# That way we would disable only the rules that are violated by upstream code, but not by ours
+
+[lints.rust]
+deprecated = "allow"
+unused_imports = "allow"
+unused_mut = "allow"
+
+[lints.clippy]
+# Can drop this rule after rebase on commit 55d6073 "Require Send+Sync bounds for Allocation trait (#1945)", first released in 18.0.0
+arc_with_non_send_sync = "allow"
+derivable_impls = "allow"
+enum_variant_names = "allow"
+extra_unused_lifetimes = "allow"
+get_first = "allow"
+let_and_return = "allow"
+needless_borrow = "allow"
+needless_borrowed_reference = "allow"
+needless_borrows_for_generic_args = "allow"
+needless_lifetimes = "allow"
+needless_return = "allow"
+nonminimal_bool = "allow"
+partialeq_to_none = "allow"
+seek_from_current = "allow"
+should_implement_trait = "allow"
+unnecessary_cast = "allow"
+unnecessary_to_owned = "allow"
+unused_io_amount = "allow"
+useless_conversion = "allow"
+useless_format = "allow"
+useless_vec = "allow"
+wrong_self_convention = "allow"

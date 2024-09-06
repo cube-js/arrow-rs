@@ -43,3 +43,14 @@ serde_json = { version = "1.0", features = ["preserve_order"] }
 tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread"] }
 tonic = "0.4"
 tracing-subscriber = { version = "0.2.15", optional = true }
+
+# Just silence all of prolematic rules in original code
+# This list should be updated during rebasing on new release, before our commits, but after toolchain updates
+# That way we would disable only the rules that are violated by upstream code, but not by ours
+
+[lints.rust]
+dead_code = "allow"
+
+[lints.clippy]
+get_first = "allow"
+needless_borrow = "allow"

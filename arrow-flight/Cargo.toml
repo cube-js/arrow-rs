@@ -46,3 +46,10 @@ proc-macro2 = "1.0.27"
 #[lib]
 #name = "flight"
 #path = "src/lib.rs"
+
+# Just silence all of prolematic rules in original code
+# This list should be updated during rebasing on new release, before our commits, but after toolchain updates
+# That way we would disable only the rules that are violated by upstream code, but not by ours
+
+[lints.clippy]
+needless_borrow = "allow"
