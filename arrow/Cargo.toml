@@ -163,3 +163,50 @@ harness = false
 [[bench]]
 name = "buffer_create"
 harness = false
+
+
+# Just silence all of prolematic rules in original code
+# This list should be updated during rebasing on new release, before our commits, but after toolchain updates
+# That way we would disable only the rules that are violated by upstream code, but not by ours
+
+[lints.rust]
+deprecated = "allow"
+unreachable_patterns = "allow"
+unused_imports = "allow"
+unused_must_use = "allow"
+
+[lints.clippy]
+# Can drop this rule after rebase on commit 55d6073 "Require Send+Sync bounds for Allocation trait (#1945)", first released in 18.0.0
+arc_with_non_send_sync = "allow"
+borrow_deref_ref = "allow"
+derivable_impls = "allow"
+get_first = "allow"
+err_expect = "allow"
+extra_unused_lifetimes = "allow"
+extra_unused_type_parameters = "allow"
+into_iter_on_ref = "allow"
+manual_bits = "allow"
+manual_slice_size_calculation = "allow"
+map_flatten = "allow"
+needless_borrow = "allow"
+needless_borrowed_reference = "allow"
+needless_borrows_for_generic_args = "allow"
+needless_late_init = "allow"
+needless_lifetimes = "allow"
+needless_question_mark = "allow"
+needless_return = "allow"
+non_canonical_partial_ord_impl = "allow"
+non_minimal_cfg = "allow"
+nonminimal_bool = "allow"
+only_used_in_recursion = "allow"
+partialeq_to_none = "allow"
+redundant_closure = "allow"
+redundant_closure_call = "allow"
+seek_from_current = "allow"
+suspicious_doc_comments = "allow"
+to_string_in_format_args = "allow"
+unnecessary_cast = "allow"
+unnecessary_fallible_conversions = "allow"
+unwrap_or_default = "allow"
+useless_conversion = "allow"
+useless_vec = "allow"

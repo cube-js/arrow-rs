@@ -40,3 +40,11 @@ proc-macro2 = "1.0"
 quote = "1.0"
 syn = { version = "1.0", features = ["full", "extra-traits"] }
 parquet = { path = "../parquet", version = "5.0.0" }
+
+# Just silence all of prolematic rules in original code
+# This list should be updated during rebasing on new release, before our commits, but after toolchain updates
+# That way we would disable only the rules that are violated by upstream code, but not by ours
+
+[lints.clippy]
+only_used_in_recursion = "allow"
+redundant_closure = "allow"
