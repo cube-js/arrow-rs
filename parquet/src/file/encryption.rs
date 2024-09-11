@@ -38,16 +38,29 @@ pub struct ParquetEncryptionKeyInfo {
     pub key: ParquetEncryptionKey,
 }
 
+/// Tells what mode (and also the key value(s)) a file is to be encrypted in (when writing) or is
+/// permitted to be encrypted in (when reading).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum ParquetEncryptionMode {
+    /// Means the file is unencrypted
+    Unencrypted,
+    /// Means the file is footer-encrypted -- well, fully-encrypted.  The same key is used for all
+    /// the columns too, in this implementation.
+    FooterEncrypted(ParquetEncryptionKeyInfo),
+}
+
 /// Describes general parquet encryption configuration -- new files are encrypted with the
 /// write_key(), but old files can be decrypted with any of the valid read keys.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ParquetEncryptionConfig {
-    // The last key is the write key, and all the keys are valid read keys.
-    keys: Vec<ParquetEncryptionKeyInfo>,
+    // The last mode is the write mode (i.e. it has the write key), and all the prior modes are
+    // valid read modes (i.e. valid read keys, or Unencrypted mode, if a user turned on encryption
+    // but hasn't key-rotated unencrypted files away yet).
+    keys: Vec<ParquetEncryptionMode>,
 }
 
 impl ParquetEncryptionConfig {
-    pub fn new(keys: Vec<ParquetEncryptionKeyInfo>) -> Option<ParquetEncryptionConfig> {
+    pub fn new(keys: Vec<ParquetEncryptionMode>) -> Option<ParquetEncryptionConfig> {
         if keys.is_empty() {
             None
         } else {
@@ -55,11 +68,11 @@ impl ParquetEncryptionConfig {
         }
     }
 
-    pub fn write_key(&self) -> &ParquetEncryptionKeyInfo {
+    pub fn write_key(&self) -> &ParquetEncryptionMode {
         self.keys.last().unwrap()
     }
 
-    pub fn read_keys(&self) -> &[ParquetEncryptionKeyInfo] {
+    pub fn read_keys(&self) -> &[ParquetEncryptionMode] {
         self.keys.as_slice()
     }
 }
