@@ -41,9 +41,8 @@ use crate::schema::types::{self, SchemaDescriptor};
 use crate::file::{
     encryption::{
         decrypt_module, parquet_magic, ParquetEncryptionConfig, ParquetEncryptionKey,
-        ParquetEncryptionMode,
-        ParquetEncryptionKeyInfo, RandomFileIdentifier, AAD_FILE_UNIQUE_SIZE,
-        PARQUET_KEY_HASH_LENGTH,
+        ParquetEncryptionKeyInfo, ParquetEncryptionMode, RandomFileIdentifier,
+        AAD_FILE_UNIQUE_SIZE, PARQUET_KEY_HASH_LENGTH,
     },
     PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE, PARQUET_MAGIC_UNSUPPORTED_PARE,
 };
@@ -53,20 +52,20 @@ fn select_key(
     key_metadata: &Option<Vec<u8>>,
 ) -> Result<ParquetEncryptionKey> {
     if let Some(key_id) = key_metadata {
-         if key_id.len() != PARQUET_KEY_HASH_LENGTH {
+        if key_id.len() != PARQUET_KEY_HASH_LENGTH {
             return Err(general_err!(
                 "Unsupported Parquet file.  key_metadata field length is not supported"
             ));
-         }
-         let mut key_id_arr = [0u8; PARQUET_KEY_HASH_LENGTH];
-         key_id_arr.copy_from_slice(&key_id);
-         let read_keys: &[ParquetEncryptionMode] = encryption_config.read_keys();
-         for mode in read_keys {
+        }
+        let mut key_id_arr = [0u8; PARQUET_KEY_HASH_LENGTH];
+        key_id_arr.copy_from_slice(&key_id);
+        let read_keys: &[ParquetEncryptionMode] = encryption_config.read_keys();
+        for mode in read_keys {
             match mode {
-                ParquetEncryptionMode::Unencrypted => { },
+                ParquetEncryptionMode::Unencrypted => {}
                 ParquetEncryptionMode::FooterEncrypted(key_info) => {
                     if key_info.key.compute_key_hash() == key_id_arr {
-                        return Ok(key_info.key)
+                        return Ok(key_info.key);
                     }
                 }
             }
@@ -115,16 +114,26 @@ pub fn parse_metadata<R: ChunkReader>(
         let trailing_magic: &[u8] = &default_len_end_buf[default_end_len - 4..];
         if trailing_magic == PARQUET_MAGIC {
             if let Some(config) = encryption_config {
-                if !config.read_keys().iter().any(|m| matches!(m, ParquetEncryptionMode::Unencrypted)) {
+                if !config
+                    .read_keys()
+                    .iter()
+                    .any(|m| matches!(m, ParquetEncryptionMode::Unencrypted))
+                {
                     return Err(general_err!("Invalid Parquet file in encrypted mode.  File (or at least the Parquet footer) is not encrypted"));
                 }
             }
             encrypted_footer = false;
         } else if trailing_magic == PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE {
-            let has_keys = encryption_config.as_ref().map_or(false,
-                |config| config.read_keys().iter().any(|m| matches!(m, ParquetEncryptionMode::FooterEncrypted(_))));
+            let has_keys = encryption_config.as_ref().map_or(false, |config| {
+                config
+                    .read_keys()
+                    .iter()
+                    .any(|m| matches!(m, ParquetEncryptionMode::FooterEncrypted(_)))
+            });
             if !has_keys {
-                return Err(general_err!("Invalid Parquet file in unencrypted mode.  File is encrypted"));
+                return Err(general_err!(
+                    "Invalid Parquet file in unencrypted mode.  File is encrypted"
+                ));
             }
             encrypted_footer = true;
         } else if trailing_magic == PARQUET_MAGIC_UNSUPPORTED_PARE {
@@ -174,7 +183,8 @@ pub fn parse_metadata<R: ChunkReader>(
 
     let random_file_identifier: Option<RandomFileIdentifier>;
     if encrypted_footer {
-        let encryption_config: &ParquetEncryptionConfig = encryption_config.as_ref().unwrap();
+        let encryption_config: &ParquetEncryptionConfig =
+            encryption_config.as_ref().unwrap();
         let file_crypto_metadata = {
             let mut prot = TCompactInputProtocol::new(&mut metadata_read);
             TFileCryptoMetaData::read_from_in_protocol(&mut prot).map_err(|e| {

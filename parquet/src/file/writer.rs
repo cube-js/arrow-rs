@@ -743,7 +743,7 @@ mod tests {
     use crate::compression::{create_codec, Codec};
     use crate::file::encryption::{
         generate_random_file_identifier, ParquetEncryptionConfig,
-        ParquetEncryptionKeyInfo, ParquetEncryptionMode
+        ParquetEncryptionKeyInfo, ParquetEncryptionMode,
     };
     use crate::file::reader::Length;
     use crate::file::{
@@ -1367,10 +1367,14 @@ mod tests {
 
         file_writer.close().unwrap();
 
-        let encryption_config = encryption_info
-            .map(|(key_info, _)| ParquetEncryptionConfig::new(vec![ParquetEncryptionMode::FooterEncrypted(key_info)]).unwrap());
+        let encryption_config = encryption_info.map(|(key_info, _)| {
+            ParquetEncryptionConfig::new(vec![ParquetEncryptionMode::FooterEncrypted(
+                key_info,
+            )])
+            .unwrap()
+        });
         let reader = assert_send(
-            SerializedFileReader::new_maybe_encrypted(file, &encryption_config).unwrap()
+            SerializedFileReader::new_maybe_encrypted(file, &encryption_config).unwrap(),
         );
         assert_eq!(reader.num_row_groups(), data.len());
         assert_eq!(
@@ -1479,9 +1483,15 @@ mod tests {
         let buffer = cursor.into_inner().unwrap();
 
         let reading_cursor = crate::file::serialized_reader::SliceableCursor::new(buffer);
-        let encryption_config = encryption_info
-            .map(|(key_info, _)| ParquetEncryptionConfig::new(vec![ParquetEncryptionMode::FooterEncrypted(key_info)]).unwrap());
-        let reader = SerializedFileReader::new_maybe_encrypted(reading_cursor, &encryption_config).unwrap();
+        let encryption_config = encryption_info.map(|(key_info, _)| {
+            ParquetEncryptionConfig::new(vec![ParquetEncryptionMode::FooterEncrypted(
+                key_info,
+            )])
+            .unwrap()
+        });
+        let reader =
+            SerializedFileReader::new_maybe_encrypted(reading_cursor, &encryption_config)
+                .unwrap();
 
         assert_eq!(reader.num_row_groups(), data.len());
         assert_eq!(
