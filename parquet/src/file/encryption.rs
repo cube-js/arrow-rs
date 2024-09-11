@@ -44,8 +44,8 @@ pub struct ParquetEncryptionKeyInfo {
 pub enum ParquetEncryptionMode {
     /// Means the file is unencrypted
     Unencrypted,
-    /// Means the file is footer-encrypted -- well, fully-encrypted.  The same key is used for all
-    /// the columns too, in this implementation.
+    /// Means the file is encrypted with encrypted footer mode.  The same
+    /// key is used for all the columns too, in this implementation.
     FooterEncrypted(ParquetEncryptionKeyInfo),
 }
 
