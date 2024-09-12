@@ -46,7 +46,7 @@ pub enum ParquetEncryptionMode {
     Unencrypted,
     /// Means the file is encrypted with encrypted footer mode.  The same
     /// key is used for all the columns too, in this implementation.
-    FooterEncrypted(ParquetEncryptionKeyInfo),
+    EncryptedFooter(ParquetEncryptionKeyInfo),
 }
 
 /// Describes general parquet encryption configuration -- new files are encrypted with the

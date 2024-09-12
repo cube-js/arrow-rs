@@ -1368,7 +1368,7 @@ mod tests {
         file_writer.close().unwrap();
 
         let encryption_config = encryption_info.map(|(key_info, _)| {
-            ParquetEncryptionConfig::new(vec![ParquetEncryptionMode::FooterEncrypted(
+            ParquetEncryptionConfig::new(vec![ParquetEncryptionMode::EncryptedFooter(
                 key_info,
             )])
             .unwrap()
@@ -1484,7 +1484,7 @@ mod tests {
 
         let reading_cursor = crate::file::serialized_reader::SliceableCursor::new(buffer);
         let encryption_config = encryption_info.map(|(key_info, _)| {
-            ParquetEncryptionConfig::new(vec![ParquetEncryptionMode::FooterEncrypted(
+            ParquetEncryptionConfig::new(vec![ParquetEncryptionMode::EncryptedFooter(
                 key_info,
             )])
             .unwrap()

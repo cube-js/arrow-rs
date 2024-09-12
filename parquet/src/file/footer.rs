@@ -63,7 +63,7 @@ fn select_key(
         for mode in read_keys {
             match mode {
                 ParquetEncryptionMode::Unencrypted => {}
-                ParquetEncryptionMode::FooterEncrypted(key_info) => {
+                ParquetEncryptionMode::EncryptedFooter(key_info) => {
                     if key_info.key.compute_key_hash() == key_id_arr {
                         return Ok(key_info.key);
                     }
@@ -128,7 +128,7 @@ pub fn parse_metadata<R: ChunkReader>(
                 config
                     .read_keys()
                     .iter()
-                    .any(|m| matches!(m, ParquetEncryptionMode::FooterEncrypted(_)))
+                    .any(|m| matches!(m, ParquetEncryptionMode::EncryptedFooter(_)))
             });
             if !has_keys {
                 return Err(general_err!(
