@@ -41,8 +41,8 @@ use crate::schema::types::{self, SchemaDescriptor};
 use crate::file::{
     encryption::{
         decrypt_module, parquet_magic, ParquetEncryptionConfig, ParquetEncryptionKey,
-        ParquetEncryptionKeyInfo, RandomFileIdentifier, AAD_FILE_UNIQUE_SIZE,
-        PARQUET_KEY_HASH_LENGTH,
+        ParquetEncryptionKeyInfo, ParquetEncryptionMode, RandomFileIdentifier,
+        AAD_FILE_UNIQUE_SIZE, PARQUET_KEY_HASH_LENGTH,
     },
     PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE, PARQUET_MAGIC_UNSUPPORTED_PARE,
 };
@@ -59,10 +59,15 @@ fn select_key(
         }
         let mut key_id_arr = [0u8; PARQUET_KEY_HASH_LENGTH];
         key_id_arr.copy_from_slice(&key_id);
-        let read_keys: &[ParquetEncryptionKeyInfo] = encryption_config.read_keys();
-        for key_info in read_keys {
-            if key_info.key.compute_key_hash() == key_id_arr {
-                return Ok(key_info.key);
+        let read_keys: &[ParquetEncryptionMode] = encryption_config.read_keys();
+        for mode in read_keys {
+            match mode {
+                ParquetEncryptionMode::Unencrypted => {}
+                ParquetEncryptionMode::EncryptedFooter(key_info) => {
+                    if key_info.key.compute_key_hash() == key_id_arr {
+                        return Ok(key_info.key);
+                    }
+                }
             }
         }
         return Err(general_err!(
@@ -103,20 +108,38 @@ pub fn parse_metadata<R: ChunkReader>(
     default_end_reader.read_exact(&mut default_len_end_buf)?;
 
     // check this is indeed a parquet file
+    let encrypted_footer: bool;
     {
+        // and check that its encryption setting conceivably matches our encryption_config (but without yet checking keys)
         let trailing_magic: &[u8] = &default_len_end_buf[default_end_len - 4..];
-        if trailing_magic != parquet_magic(encryption_config.is_some()) {
-            if trailing_magic == PARQUET_MAGIC {
-                return Err(general_err!("Invalid Parquet file in encrypted mode.  File (or at least the Parquet footer) is not encrypted"));
-            } else if trailing_magic == PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE {
+        if trailing_magic == PARQUET_MAGIC {
+            if let Some(config) = encryption_config {
+                if !config
+                    .read_keys()
+                    .iter()
+                    .any(|m| matches!(m, ParquetEncryptionMode::Unencrypted))
+                {
+                    return Err(general_err!("Invalid Parquet file in encrypted mode.  File (or at least the Parquet footer) is not encrypted"));
+                }
+            }
+            encrypted_footer = false;
+        } else if trailing_magic == PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE {
+            let has_keys = encryption_config.as_ref().map_or(false, |config| {
+                config
+                    .read_keys()
+                    .iter()
+                    .any(|m| matches!(m, ParquetEncryptionMode::EncryptedFooter(_)))
+            });
+            if !has_keys {
                 return Err(general_err!(
                     "Invalid Parquet file in unencrypted mode.  File is encrypted"
                 ));
-            } else if trailing_magic == PARQUET_MAGIC_UNSUPPORTED_PARE {
-                return Err(general_err!("Unsupported Parquet file.  File is encrypted with the standard PARE encryption format"));
-            } else {
-                return Err(general_err!("Invalid Parquet file. Corrupt footer"));
             }
+            encrypted_footer = true;
+        } else if trailing_magic == PARQUET_MAGIC_UNSUPPORTED_PARE {
+            return Err(general_err!("Unsupported Parquet file.  File is encrypted with the standard PARE encryption format"));
+        } else {
+            return Err(general_err!("Invalid Parquet file. Corrupt footer"));
         }
     }
 
@@ -159,7 +182,9 @@ pub fn parse_metadata<R: ChunkReader>(
     let returned_encryption_key: Option<ParquetEncryptionKey>;
 
     let random_file_identifier: Option<RandomFileIdentifier>;
-    if let Some(encryption_config) = encryption_config {
+    if encrypted_footer {
+        let encryption_config: &ParquetEncryptionConfig =
+            encryption_config.as_ref().unwrap();
         let file_crypto_metadata = {
             let mut prot = TCompactInputProtocol::new(&mut metadata_read);
             TFileCryptoMetaData::read_from_in_protocol(&mut prot).map_err(|e| {
