@@ -57,6 +57,12 @@ pub struct PrimitiveArray<T: ArrowPrimitiveType> {
     raw_values: RawPtrBox<T::Native>,
 }
 
+impl<T: ArrowPrimitiveType> Clone for PrimitiveArray<T> {
+    fn clone(&self) -> Self {
+        Self::from(self.data.clone())
+    }
+}
+
 impl<T: ArrowPrimitiveType> PrimitiveArray<T> {
     /// Returns the length of this array.
     #[inline]

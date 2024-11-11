@@ -54,6 +54,12 @@ pub struct BooleanArray {
     raw_values: RawPtrBox<u8>,
 }
 
+impl Clone for BooleanArray {
+    fn clone(&self) -> Self {
+        Self::from(self.data.clone())
+    }
+}
+
 impl fmt::Debug for BooleanArray {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "BooleanArray\n[\n")?;
