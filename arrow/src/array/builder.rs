@@ -20,6 +20,7 @@
 //! as an internal buffer in an [`ArrayData`](crate::array::ArrayData)
 //! object.
 
+// use core::slice::SlicePattern;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
@@ -86,6 +87,12 @@ pub struct BufferBuilder<T: ArrowNativeType> {
     _marker: PhantomData<T>,
 }
 
+impl<T: ArrowNativeType> Default for BufferBuilder<T> {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
 impl<T: ArrowNativeType> BufferBuilder<T> {
     /// Creates a new builder with initial capacity for _at least_ `capacity`
     /// elements of type `T`.
@@ -132,6 +139,16 @@ impl<T: ArrowNativeType> BufferBuilder<T> {
     /// ```
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    #[allow(missing_docs)]
+    pub fn typed_data_mut(&mut self) -> &mut [T] {
+        // TODO: Make faster.
+        unsafe {
+            let (_prefix, offsets, _suffix) =
+                self.buffer.as_slice_mut().align_to_mut::<T>();
+            offsets
+        }
     }
 
     /// Returns whether the internal buffer is empty.
@@ -298,10 +315,22 @@ impl BooleanBufferBuilder {
     }
 
     #[inline]
+    pub fn new_from_buffer(buffer: MutableBuffer, len: usize) -> BooleanBufferBuilder {
+        assert_eq!(len.div_ceil(8), buffer.len());
+        Self { buffer, len }
+    }
+
+    #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
 
+    #[inline]
+    pub fn get_bit(&self, index: usize) -> bool {
+        bit_util::get_bit(self.buffer.as_ref(), index)
+    }
+
+    // TODO: Probably, make set_bit be branchless
     #[inline]
     pub fn set_bit(&mut self, index: usize, v: bool) {
         if v {
@@ -381,6 +410,12 @@ impl BooleanBufferBuilder {
         let buf = std::mem::replace(&mut self.buffer, MutableBuffer::new(0));
         self.len = 0;
         buf.into()
+    }
+
+    #[inline]
+    /// Builds the [Buffer] without resetting the builder.
+    pub fn finish_cloned(&self) -> Buffer {
+        Buffer::from_slice_ref(&self.buffer.as_slice())
     }
 }
 
