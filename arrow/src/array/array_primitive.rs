@@ -146,6 +146,10 @@ impl<T: ArrowPrimitiveType> PrimitiveArray<T> {
         );
         PrimitiveArray::from(data)
     }
+
+    pub fn into_data(self) -> ArrayData {
+        self.data
+    }
 }
 
 impl<T: ArrowPrimitiveType> Array for PrimitiveArray<T> {

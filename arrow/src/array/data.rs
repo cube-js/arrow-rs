@@ -478,6 +478,15 @@ impl ArrayData {
 
         Self::new(data_type.clone(), 0, Some(0), None, 0, buffers, child_data)
     }
+
+    pub fn into_1_dimensional_parts(self) -> (Buffer, Option<Bitmap>, usize, usize) {
+        let offset: usize = self.offset;
+        let length: usize = self.len;
+        let buffers: Vec<Buffer> = self.buffers;
+        let bitmap: Option<Bitmap> = self.null_bitmap;
+        let buffer0: Buffer = buffers.into_iter().next().unwrap();
+        (buffer0, bitmap, offset, length)
+    }
 }
 
 impl PartialEq for ArrayData {

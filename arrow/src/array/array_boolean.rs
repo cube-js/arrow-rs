@@ -22,6 +22,7 @@ use std::{any::Any, fmt};
 
 use super::*;
 use super::{array::print_long_array, raw_pointer::RawPtrBox};
+use crate::bitmap::Bitmap;
 use crate::buffer::{Buffer, MutableBuffer};
 use crate::util::bit_util;
 
@@ -108,6 +109,12 @@ impl BooleanArray {
     pub fn value(&self, i: usize) -> bool {
         debug_assert!(i < self.len());
         unsafe { self.value_unchecked(i) }
+    }
+
+    /// Returns (_, _, offset, length)
+    pub fn into_parts(self) -> (Buffer, Option<Bitmap>, usize, usize) {
+        let data = self.data;
+        data.into_1_dimensional_parts()
     }
 }
 
