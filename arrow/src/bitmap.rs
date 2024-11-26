@@ -74,6 +74,10 @@ impl Bitmap {
     pub fn get_array_memory_size(&self) -> usize {
         self.bits.capacity() + mem::size_of_val(self)
     }
+
+    pub fn make_iter<'a>(&'a self, offset: usize, len: usize) -> bit_util::BitsIter<'a> {
+        bit_util::BitsIter::new(self.bits.as_slice(), offset, len)
+    }
 }
 
 impl<'a, 'b> BitAnd<&'b Bitmap> for &'a Bitmap {

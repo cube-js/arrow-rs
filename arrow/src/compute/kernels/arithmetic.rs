@@ -32,8 +32,8 @@ use crate::buffer::MutableBuffer;
 #[cfg(not(feature = "simd"))]
 use crate::compute::kernels::arity::unary;
 use crate::compute::util::combine_option_bitmap;
-use crate::datatypes;
 use crate::datatypes::ArrowNumericType;
+use crate::datatypes::{self, ArrowPrimitiveType, DataType};
 use crate::error::{ArrowError, Result};
 use crate::{array::*, util::bit_util};
 use num::traits::Pow;
@@ -156,6 +156,21 @@ where
     T: ArrowNumericType,
     F: Fn(T::Native, T::Native) -> T::Native,
 {
+    math_op_with_data_type(T::DATA_TYPE, left, right, op)
+}
+
+/// Like `math_op` but builds a PrimitiveArray with the supplied data type.
+pub fn math_op_with_data_type<T, U, F>(
+    data_type: DataType,
+    left: &PrimitiveArray<T>,
+    right: &PrimitiveArray<U>,
+    op: F,
+) -> Result<PrimitiveArray<T>>
+where
+    T: ArrowPrimitiveType,
+    U: ArrowPrimitiveType,
+    F: Fn(T::Native, U::Native) -> T::Native,
+{
     if left.len() != right.len() {
         return Err(ArrowError::ComputeError(
             "Cannot perform math operation on arrays of different length".to_string(),
@@ -178,7 +193,7 @@ where
     let buffer = unsafe { Buffer::from_trusted_len_iter(values) };
 
     let data = ArrayData::new(
-        T::DATA_TYPE,
+        data_type,
         left.len(),
         None,
         null_bit_buffer,

@@ -107,6 +107,40 @@ pub fn ceil(value: usize, divisor: usize) -> usize {
     }
 }
 
+#[derive(Debug)]
+pub struct BitsIter<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+    end_offset: usize,
+}
+
+impl<'a> BitsIter<'a> {
+    pub fn new(bytes: &'a [u8], offset: usize, len: usize) -> BitsIter<'a> {
+        let end_offset = offset + len;
+        if end_offset < offset || end_offset.div_ceil(8) > bytes.len() {
+            panic!("BitsIter::new called with invalid offset or len.  offset: {}, len: {}, bytes.len(): {}", offset, len, bytes.len());
+        }
+        BitsIter {
+            bytes,
+            offset,
+            end_offset,
+        }
+    }
+}
+
+impl<'a> Iterator for BitsIter<'a> {
+    type Item = bool;
+    fn next(&mut self) -> Option<bool> {
+        if self.offset == self.end_offset {
+            None
+        } else {
+            let bit = get_bit(self.bytes, self.offset);
+            self.offset += 1;
+            Some(bit)
+        }
+    }
+}
+
 /// Performs SIMD bitwise binary operations.
 ///
 /// # Safety
