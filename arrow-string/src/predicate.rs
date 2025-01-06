@@ -269,6 +269,13 @@ fn regex_like(pattern: &str, case_insensitive: bool) -> Result<Regex, ArrowError
                         // Skipping the next char as it is already appended
                         chars_iter.next();
                     }
+                    Some('\\') => {
+                        // Regex needs two slashes (because it interprets backslashes).
+                        result.push('\\');
+                        result.push('\\');
+                        // Skipping the next char for same reason as above.
+                        chars_iter.next();
+                    }
                     _ => {
                         result.push('\\');
                         result.push('\\');
@@ -350,6 +357,14 @@ mod tests {
     #[test]
     fn test_replace_like_wildcards_with_multiple_escape_chars() {
         let a_eq = "\\\\%";
+        let expected = "^\\\\";
+        let r = regex_like(a_eq, false).unwrap();
+        assert_eq!(r.to_string(), expected);
+    }
+
+    #[test]
+    fn test_replace_like_wildcards_with_three_escape_chars() {
+        let a_eq = "\\\\\\%";
         let expected = "^\\\\%$";
         let r = regex_like(a_eq, false).unwrap();
         assert_eq!(r.to_string(), expected);
