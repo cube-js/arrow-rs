@@ -25,6 +25,7 @@ use crate::errors::{ParquetError, Result};
 use crate::schema::types::ColumnDescPtr;
 use arrow_array::Decimal256Array;
 use arrow_array::{
+    builder::Decimal128BufferBuilder,
     builder::TimestampNanosecondBufferBuilder, ArrayRef, BooleanArray, Decimal128Array,
     Float32Array, Float64Array, Int32Array, Int64Array, TimestampNanosecondArray, UInt32Array,
     UInt64Array,
@@ -37,13 +38,14 @@ use std::sync::Arc;
 
 /// Provides conversion from `Vec<T>` to `Buffer`
 pub trait IntoBuffer {
-    fn into_buffer(self) -> Buffer;
+    /// Cube: We pass target_type so that the Int96 case knows whether to make an i128 .to_i128() or i64 .to_nanos() buffer.
+    fn into_buffer(self, target_type: &ArrowType) -> Buffer;
 }
 
 macro_rules! native_buffer {
     ($($t:ty),*) => {
         $(impl IntoBuffer for Vec<$t> {
-            fn into_buffer(self) -> Buffer {
+            fn into_buffer(self, _target_type: &ArrowType) -> Buffer {
                 Buffer::from_vec(self)
             }
         })*
@@ -52,18 +54,32 @@ macro_rules! native_buffer {
 native_buffer!(i8, i16, i32, i64, u8, u16, u32, u64, f32, f64);
 
 impl IntoBuffer for Vec<bool> {
-    fn into_buffer(self) -> Buffer {
+    fn into_buffer(self, _target_type: &ArrowType) -> Buffer {
         BooleanBuffer::from_iter(self).into_inner()
     }
 }
 
 impl IntoBuffer for Vec<Int96> {
-    fn into_buffer(self) -> Buffer {
-        let mut builder = TimestampNanosecondBufferBuilder::new(self.len());
-        for v in self {
-            builder.append(v.to_nanos())
+    fn into_buffer(self, target_type: &ArrowType) -> Buffer {
+        match target_type {
+            // Cube: Handles Decimal128(38, 0) case for DataType::Int96, or the Decimal96 case as well.
+            ArrowType::Decimal128(_, _) => {
+                let mut builder = Decimal128BufferBuilder::new(self.len());
+                for v in self {
+                    builder.append(v.to_i128());
+                }
+                builder.finish()
+            },
+            ArrowType::Timestamp(TimeUnit::Nanosecond, _) => {
+                let mut builder = TimestampNanosecondBufferBuilder::new(self.len());
+                for v in self {
+                    builder.append(v.to_nanos());
+                }
+                builder.finish()
+
+            }
+            _ => unreachable!("into_buffer for Vec<Int96> does not expect target type {:?}", target_type)
         }
-        builder.finish()
     }
 }
 
@@ -162,7 +178,10 @@ where
             PhysicalType::DOUBLE => ArrowType::Float64,
             PhysicalType::INT96 => match target_type {
                 ArrowType::Timestamp(TimeUnit::Nanosecond, _) => target_type.clone(),
-                _ => unreachable!("INT96 must be timestamp nanosecond"),
+                // Cube: Decimal128 is used for deserializing Cube fork's DataType::Int96, which used INT96.
+                // Cube: Decimal128 is also used for deserializing Cube fork's DataType::Decimal96.
+                ArrowType::Decimal128(_, _) => target_type.clone(),
+                _ => unreachable!("INT96 must be timestamp nanosecond or Decimal128(38, 0)"),
             },
             PhysicalType::BYTE_ARRAY | PhysicalType::FIXED_LEN_BYTE_ARRAY => {
                 unreachable!("PrimitiveArrayReaders don't support complex physical types");
@@ -172,7 +191,7 @@ where
         // Convert to arrays by using the Parquet physical type.
         // The physical types are then cast to Arrow types if necessary
 
-        let record_data = self.record_reader.consume_record_data().into_buffer();
+        let record_data = self.record_reader.consume_record_data().into_buffer(target_type);
 
         let array_data = ArrayDataBuilder::new(arrow_data_type)
             .len(self.record_reader.num_values())
@@ -194,7 +213,12 @@ where
             },
             PhysicalType::FLOAT => Arc::new(Float32Array::from(array_data)),
             PhysicalType::DOUBLE => Arc::new(Float64Array::from(array_data)),
-            PhysicalType::INT96 => Arc::new(TimestampNanosecondArray::from(array_data)),
+            PhysicalType::INT96 => match array_data.data_type() {
+                ArrowType::Timestamp(TimeUnit::Nanosecond, _) => Arc::new(TimestampNanosecondArray::from(array_data)),
+                // Cube fork DataType::Int96 or Decimal96 reading cases
+                ArrowType::Decimal128(_, _) => Arc::new(Decimal128Array::from(array_data)),
+                _ => unreachable!(),
+            },
             PhysicalType::BYTE_ARRAY | PhysicalType::FIXED_LEN_BYTE_ARRAY => {
                 unreachable!("PrimitiveArrayReaders don't support complex physical types");
             }
@@ -209,7 +233,7 @@ where
         // are datatypes which we must convert explicitly.
         // These are:
         // - date64: we should cast int32 to date32, then date32 to date64.
-        // - decimal: cast in32 to decimal, int64 to decimal
+        // - decimal: cast in32 to decimal, int64 to decimal, (cube:) int96 to Decimal128(38, 0)
         let array = match target_type {
             ArrowType::Date64 => {
                 // this is cheap as it internally reinterprets the data
@@ -221,28 +245,28 @@ where
                 // to `i128` is infallible. This improves performance by avoiding a branch in
                 // the inner loop (see docs for `PrimitiveArray::unary`).
                 let array = match array.data_type() {
-                    ArrowType::Int32 => array
+                    ArrowType::Int32 => Arc::new((array
                         .as_any()
                         .downcast_ref::<Int32Array>()
                         .unwrap()
                         .unary(|i| i as i128)
-                        as Decimal128Array,
-                    ArrowType::Int64 => array
+                        as Decimal128Array).with_precision_and_scale(*p, *s)?),
+                    ArrowType::Int64 => Arc::new((array
                         .as_any()
                         .downcast_ref::<Int64Array>()
                         .unwrap()
                         .unary(|i| i as i128)
-                        as Decimal128Array,
+                        as Decimal128Array).with_precision_and_scale(*p, *s)?),
+                    // Cube fork DataType::Int96 or Decimal96 reading case
+                    ArrowType::Decimal128(_, _) => array,
                     _ => {
                         return Err(arrow_err!(
                             "Cannot convert {:?} to decimal",
                             array.data_type()
                         ));
                     }
-                }
-                .with_precision_and_scale(*p, *s)?;
-
-                Arc::new(array) as ArrayRef
+                };
+                array
             }
             ArrowType::Decimal256(p, s) => {
                 // See above comment. Conversion to `i256` is likewise infallible.
