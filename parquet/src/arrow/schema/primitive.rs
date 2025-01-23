@@ -50,6 +50,9 @@ fn apply_hint(parquet: DataType, hint: DataType) -> DataType {
         // Coerce Date32 back to Date64 (#1666)
         (DataType::Date32, DataType::Date64) => hint,
 
+        // Cube: Coerce INT96, from the fork's DataType::Int96, to Decimal128.  Also, Decimal96.
+        (DataType::Timestamp(TimeUnit::Nanosecond, None), DataType::Decimal128(_, _)) => hint,
+
         // Determine timezone
         (DataType::Timestamp(p, _), DataType::Timestamp(h, Some(_))) if p == h => hint,
 

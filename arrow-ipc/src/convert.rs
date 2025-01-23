@@ -320,6 +320,10 @@ pub(crate) fn get_data_type(field: crate::Field, may_be_dictionary: bool) -> Dat
                 (32, false) => DataType::UInt32,
                 (64, true) => DataType::Int64,
                 (64, false) => DataType::UInt64,
+                // Cube: Support reading INT96-encoded integers as Decimal128 type.  Uses maximum
+                // precision for the Decimal128 type (after all, precision=29 would break the
+                // semantics and also prevent future storage of values into INT96 as well).
+                (96, true) => DataType::Decimal128(38, 0),
                 z => panic!(
                     "Int type with bit width of {} and signed of {} not supported",
                     z.0, z.1
@@ -459,6 +463,8 @@ pub(crate) fn get_data_type(field: crate::Field, may_be_dictionary: bool) -> Dat
             match bit_width {
                 128 => DataType::Decimal128(precision, scale),
                 256 => DataType::Decimal256(precision, scale),
+                // Cube: Decimal64 or Decimal96 case
+                64 | 96 => DataType::Decimal128(precision, scale),
                 _ => panic!("Unexpected decimal bit width {bit_width}"),
             }
         }

@@ -56,6 +56,17 @@ impl Int96 {
         self.value = [elem0, elem1, elem2];
     }
 
+    /// Cube: Convert data to i128, for fork's DataType::Int96
+    #[inline]
+    pub fn to_i128(&self) -> i128 {
+        let data = self.data();
+        // Note the i32 -> i128 sign extension conversion with data[0].
+        let result =
+            (((data[0] as i32) as i128) << 64) + ((data[1] as i128) << 32) + data[2] as i128;
+
+        result
+    }
+
     /// Converts this INT96 into an i64 representing the number of MILLISECONDS since Epoch
     pub fn to_i64(&self) -> i64 {
         let (seconds, nanoseconds) = self.to_seconds_and_nanos();
