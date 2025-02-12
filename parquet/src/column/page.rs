@@ -21,6 +21,7 @@ use bytes::Bytes;
 
 use crate::basic::{Encoding, PageType};
 use crate::errors::{ParquetError, Result};
+use crate::file::encryption::USUAL_ENCRYPTION_OVERHEAD;
 use crate::file::statistics::Statistics;
 use crate::format::PageHeader;
 
@@ -162,11 +163,12 @@ impl CompressedPage {
         self.uncompressed_size
     }
 
-    /// Returns compressed size in bytes.
+    /// Returns compressed size in bytes, before encryption.  Note that some "compressed_size"
+    /// fields need to include encryption overhead.
     ///
-    /// Note that it is assumed that buffer is compressed, but it may not be. In this
-    /// case compressed size will be equal to uncompressed size.
-    pub fn compressed_size(&self) -> usize {
+    /// Note that it is assumed that buffer is compressed, but it may not be. In this case
+    /// compressed size will be equal to uncompressed size.
+    pub fn compressed_unencrypted_size(&self) -> usize {
         self.compressed_page.buffer().len()
     }
 
@@ -186,9 +188,14 @@ impl CompressedPage {
     }
 
     /// Returns the thrift page header
-    pub(crate) fn to_thrift_header(&self) -> PageHeader {
+    pub(crate) fn to_thrift_header(&self, is_encrypted: bool) -> PageHeader {
         let uncompressed_size = self.uncompressed_size();
-        let compressed_size = self.compressed_size();
+        let compressed_size = self.compressed_unencrypted_size()
+            + (if is_encrypted {
+                USUAL_ENCRYPTION_OVERHEAD
+            } else {
+                0
+            });
         let num_values = self.num_values();
         let encoding = self.encoding();
         let page_type = self.page_type();
@@ -376,7 +383,11 @@ pub trait PageWriter: Send {
     ///
     /// This method is called for every compressed page we write into underlying buffer,
     /// either data page or dictionary page.
-    fn write_page(&mut self, page: CompressedPage) -> Result<PageWriteSpec>;
+    fn write_page(
+        &mut self,
+        page: CompressedPage,
+        aad_page_ordinal: Option<u16>,
+    ) -> Result<PageWriteSpec>;
 
     /// Closes resources and flushes underlying sink.
     /// Page writer should not be used after this method is called.
@@ -457,7 +468,7 @@ mod tests {
 
         assert_eq!(cpage.page_type(), PageType::DATA_PAGE);
         assert_eq!(cpage.uncompressed_size(), 5);
-        assert_eq!(cpage.compressed_size(), 3);
+        assert_eq!(cpage.compressed_unencrypted_size(), 3);
         assert_eq!(cpage.num_values(), 10);
         assert_eq!(cpage.encoding(), Encoding::PLAIN);
         assert_eq!(cpage.data(), &[0, 1, 2]);

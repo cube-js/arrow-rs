@@ -24,6 +24,9 @@ use bytes::Bytes;
 use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
 use parquet::arrow::ArrowWriter;
 use parquet::basic::{Encoding, PageType};
+use parquet::file::encryption::{
+    try_into_encryption_params_with_rg_ordinal, try_into_row_group_ordinal,
+};
 use parquet::file::metadata::ParquetMetaData;
 use parquet::file::properties::{ReaderProperties, WriterProperties};
 use parquet::file::reader::SerializedPageReader;
@@ -80,12 +83,19 @@ fn assert_layout(file_reader: &Bytes, meta: &ParquetMetaData, layout: &Layout) {
     let iter = meta
         .row_groups()
         .iter()
+        .enumerate()
         .zip(&layout.row_groups)
         .zip(meta.offset_index().unwrap());
 
-    for ((row_group, row_group_layout), offset_index) in iter {
+    for (((row_group_idx, row_group), row_group_layout), offset_index) in iter {
         // Check against offset index
         assert_eq!(offset_index.len(), row_group_layout.columns.len());
+        let row_group_ordinal: Option<i16> = row_group.ordinal();
+        assert_eq!(
+            row_group_ordinal,
+            Some(try_into_row_group_ordinal(row_group_idx).unwrap())
+        );
+        let row_group_ordinal: i16 = row_group_ordinal.unwrap();
 
         for (column_index, column_layout) in offset_index.iter().zip(&row_group_layout.columns) {
             assert_eq!(
@@ -135,12 +145,19 @@ fn assert_layout(file_reader: &Bytes, meta: &ParquetMetaData, layout: &Layout) {
             let properties = ReaderProperties::builder()
                 .set_backward_compatible_lz4(false)
                 .build();
+            let encryption_params = try_into_encryption_params_with_rg_ordinal(
+                meta.file_encryption_info(),
+                row_group_ordinal,
+                idx,
+            )
+            .unwrap();
             let page_reader = SerializedPageReader::new_with_properties(
                 Arc::new(file_reader.clone()),
                 column,
                 row_group.num_rows() as usize,
                 None,
                 Arc::new(properties),
+                encryption_params,
             )
             .unwrap();
 

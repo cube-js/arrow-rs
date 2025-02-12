@@ -16,17 +16,25 @@
 // under the License.
 
 use crate::errors::Result;
+use crate::file::encryption::{
+    encrypt_module, parquet_aad_suffix_no_page, parquet_magic, try_into_column_ordinal,
+    try_into_row_group_ordinal, PrepaddedPlaintext,
+};
 use crate::file::metadata::{KeyValue, ParquetMetaData};
 use crate::file::page_index::index::Index;
+use crate::file::serialized_reader::{COLUMN_INDEX_MODULE_TYPE, OFFSET_INDEX_MODULE_TYPE};
 use crate::file::writer::TrackedWrite;
-use crate::file::PARQUET_MAGIC;
-use crate::format::{ColumnIndex, OffsetIndex, RowGroup};
+use crate::format::{
+    AesGcmV1, ColumnIndex, EncryptionAlgorithm, FileCryptoMetaData, OffsetIndex, RowGroup,
+};
 use crate::schema::types;
 use crate::schema::types::{SchemaDescPtr, SchemaDescriptor, TypePtr};
 use crate::thrift::TSerializable;
 use std::io::Write;
 use std::sync::Arc;
-use thrift::protocol::TCompactOutputProtocol;
+use thrift::protocol::{TCompactOutputProtocol, TOutputProtocol};
+
+use super::FileEncryptionInfo;
 
 /// Writes `crate::file::metadata` structures to a thrift encoded byte stream
 ///
@@ -41,6 +49,7 @@ pub(crate) struct ThriftMetadataWriter<'a, W: Write> {
     key_value_metadata: Option<Vec<KeyValue>>,
     created_by: Option<String>,
     writer_version: i32,
+    encryption_info: &'a Option<FileEncryptionInfo>,
 }
 
 impl<'a, W: Write> ThriftMetadataWriter<'a, W> {
@@ -57,8 +66,32 @@ impl<'a, W: Write> ThriftMetadataWriter<'a, W> {
             for (column_idx, column_metadata) in row_group.columns.iter_mut().enumerate() {
                 if let Some(offset_index) = &offset_indexes[row_group_idx][column_idx] {
                     let start_offset = self.buf.bytes_written();
-                    let mut protocol = TCompactOutputProtocol::new(&mut self.buf);
-                    offset_index.write_to_out_protocol(&mut protocol)?;
+                    if let Some(ei) = self.encryption_info {
+                        let aad_suffix = parquet_aad_suffix_no_page(
+                            &ei.random_file_identifier,
+                            OFFSET_INDEX_MODULE_TYPE,
+                            try_into_row_group_ordinal(row_group_idx)?,
+                            try_into_column_ordinal(column_idx)?,
+                        );
+
+                        let mut plaintext = PrepaddedPlaintext::new();
+                        {
+                            let mut protocol = TCompactOutputProtocol::new(plaintext.buf_mut());
+                            offset_index.write_to_out_protocol(&mut protocol)?;
+                            protocol.flush()?;
+                        }
+
+                        encrypt_module(
+                            "offset index",
+                            &mut self.buf,
+                            &ei.encryption_key,
+                            plaintext,
+                            &aad_suffix,
+                        )?;
+                    } else {
+                        let mut protocol = TCompactOutputProtocol::new(&mut self.buf);
+                        offset_index.write_to_out_protocol(&mut protocol)?;
+                    }
                     let end_offset = self.buf.bytes_written();
                     // set offset and index for offset index
                     column_metadata.offset_index_offset = Some(start_offset as i64);
@@ -82,8 +115,34 @@ impl<'a, W: Write> ThriftMetadataWriter<'a, W> {
             for (column_idx, column_metadata) in row_group.columns.iter_mut().enumerate() {
                 if let Some(column_index) = &column_indexes[row_group_idx][column_idx] {
                     let start_offset = self.buf.bytes_written();
-                    let mut protocol = TCompactOutputProtocol::new(&mut self.buf);
-                    column_index.write_to_out_protocol(&mut protocol)?;
+
+                    if let Some(ei) = self.encryption_info {
+                        let aad_suffix = parquet_aad_suffix_no_page(
+                            &ei.random_file_identifier,
+                            COLUMN_INDEX_MODULE_TYPE,
+                            try_into_row_group_ordinal(row_group_idx)?,
+                            try_into_column_ordinal(column_idx)?,
+                        );
+
+                        let mut plaintext = PrepaddedPlaintext::new();
+                        {
+                            let mut protocol = TCompactOutputProtocol::new(plaintext.buf_mut());
+                            column_index.write_to_out_protocol(&mut protocol)?;
+                            protocol.flush()?;
+                        }
+
+                        encrypt_module(
+                            "column index",
+                            &mut self.buf,
+                            &ei.encryption_key,
+                            plaintext,
+                            &aad_suffix,
+                        )?;
+                    } else {
+                        let mut protocol = TCompactOutputProtocol::new(&mut self.buf);
+                        column_index.write_to_out_protocol(&mut protocol)?;
+                    }
+
                     let end_offset = self.buf.bytes_written();
                     // set offset and index for offset index
                     column_metadata.column_index_offset = Some(start_offset as i64);
@@ -133,7 +192,45 @@ impl<'a, W: Write> ThriftMetadataWriter<'a, W> {
 
         // Write file metadata
         let start_pos = self.buf.bytes_written();
-        {
+
+        if let Some(encryption_info) = &self.encryption_info {
+            // FileCryptoMetaData and FileMetadata
+
+            let file_crypto_metadata = FileCryptoMetaData {
+                encryption_algorithm: EncryptionAlgorithm::AESGCMV1(AesGcmV1 {
+                    aad_prefix: None,
+                    aad_file_unique: Some(encryption_info.random_file_identifier.to_vec()),
+                    supply_aad_prefix: None,
+                }),
+                // TODO: Maybe the user of this parquet lib will want to make their own decision
+                // about this.  Right now this library supports passing multiple read keys, and uses
+                // the Sha3-224 of the key as a key id to select the key.
+                key_metadata: Some(encryption_info.encryption_key.compute_key_hash().to_vec()),
+            };
+
+            {
+                let mut protocol = TCompactOutputProtocol::new(&mut self.buf);
+                file_crypto_metadata.write_to_out_protocol(&mut protocol)?;
+                protocol.flush()?;
+            }
+
+            let mut plaintext = PrepaddedPlaintext::new();
+            {
+                let mut protocol = TCompactOutputProtocol::new(plaintext.buf_mut());
+                file_metadata.write_to_out_protocol(&mut protocol)?;
+                protocol.flush()?;
+            }
+
+            let no_aad = &[];
+
+            encrypt_module(
+                "FileMetaData",
+                &mut self.buf,
+                &encryption_info.encryption_key,
+                plaintext,
+                no_aad,
+            )?;
+        } else {
             let mut protocol = TCompactOutputProtocol::new(&mut self.buf);
             file_metadata.write_to_out_protocol(&mut protocol)?;
         }
@@ -143,7 +240,8 @@ impl<'a, W: Write> ThriftMetadataWriter<'a, W> {
         let metadata_len = (end_pos - start_pos) as u32;
 
         self.buf.write_all(&metadata_len.to_le_bytes())?;
-        self.buf.write_all(&PARQUET_MAGIC)?;
+        self.buf
+            .write_all(&parquet_magic(self.encryption_info.is_some()))?;
         Ok(file_metadata)
     }
 
@@ -154,6 +252,7 @@ impl<'a, W: Write> ThriftMetadataWriter<'a, W> {
         row_groups: Vec<RowGroup>,
         created_by: Option<String>,
         writer_version: i32,
+        encryption_info: &'a Option<FileEncryptionInfo>,
     ) -> Self {
         Self {
             buf,
@@ -165,6 +264,7 @@ impl<'a, W: Write> ThriftMetadataWriter<'a, W> {
             key_value_metadata: None,
             created_by,
             writer_version,
+            encryption_info,
         }
     }
 
@@ -313,6 +413,7 @@ impl<'a, W: Write> ParquetMetaDataWriter<'a, W> {
             row_groups,
             created_by,
             file_metadata.version(),
+            &self.metadata.metadata_encryption_info,
         );
         encoder = encoder.with_column_indexes(&column_indexes);
         encoder = encoder.with_offset_indexes(&offset_indexes);

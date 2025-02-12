@@ -34,6 +34,7 @@ use crate::arrow::schema::{parquet_to_arrow_schema_and_fields, ParquetField};
 use crate::arrow::{parquet_to_arrow_field_levels, FieldLevels, ProjectionMask};
 use crate::column::page::{PageIterator, PageReader};
 use crate::errors::{ParquetError, Result};
+use crate::file::encryption::{try_into_encryption_params, ParquetEncryptionConfig};
 use crate::file::metadata::{ParquetMetaData, ParquetMetaDataReader};
 use crate::file::reader::{ChunkReader, SerializedPageReader};
 use crate::schema::types::SchemaDescriptor;
@@ -252,6 +253,8 @@ pub struct ArrowReaderOptions {
     supplied_schema: Option<SchemaRef>,
     /// If true, attempt to read `OffsetIndex` and `ColumnIndex`
     pub(crate) page_index: bool,
+    /// Parquet encryption configuration
+    pub(crate) encryption_config: Option<ParquetEncryptionConfig>,
 }
 
 impl ArrowReaderOptions {
@@ -342,6 +345,17 @@ impl ArrowReaderOptions {
     pub fn with_page_index(self, page_index: bool) -> Self {
         Self { page_index, ..self }
     }
+
+    /// Enable encryption, if `Some` (defaults to `None`) and the `ParquetEncryptionConfig` enables encryption
+    pub fn with_encryption_config(
+        self,
+        encryption_config: Option<ParquetEncryptionConfig>,
+    ) -> Self {
+        Self {
+            encryption_config,
+            ..self
+        }
+    }
 }
 
 /// The metadata necessary to construct a [`ArrowReaderBuilder`]
@@ -380,9 +394,10 @@ impl ArrowReaderMetadata {
     /// `Self::metadata` is missing the page index, this function will attempt
     /// to load the page index by making an object store request.
     pub fn load<T: ChunkReader>(reader: &T, options: ArrowReaderOptions) -> Result<Self> {
-        let metadata = ParquetMetaDataReader::new()
-            .with_page_indexes(options.page_index)
-            .parse_and_finish(reader)?;
+        let metadata =
+            ParquetMetaDataReader::new_with_encryption_config(options.encryption_config.clone())
+                .with_page_indexes(options.page_index)
+                .parse_and_finish(reader)?;
         Self::try_new(Arc::new(metadata), options)
     }
 
@@ -677,7 +692,25 @@ impl<T: ChunkReader + 'static> Iterator for ReaderPageIterator<T> {
         let total_rows = rg.num_rows() as usize;
         let reader = self.reader.clone();
 
-        let ret = SerializedPageReader::new(reader, meta, total_rows, page_locations);
+        // Cube: This uses default `ReaderProperties` because this function used SerializedPageReader::new() before
+        let props = Arc::new(crate::file::properties::ReaderProperties::builder().build());
+
+        let encryption_params = match try_into_encryption_params(
+            self.metadata.file_encryption_info(),
+            rg_idx,
+            self.column_idx,
+        ) {
+            Ok(value) => value,
+            Err(e) => return Some(Err(e)),
+        };
+        let ret = SerializedPageReader::new_with_properties(
+            reader,
+            meta,
+            total_rows,
+            page_locations,
+            props,
+            encryption_params,
+        );
         Some(ret.map(|x| Box::new(x) as _))
     }
 }

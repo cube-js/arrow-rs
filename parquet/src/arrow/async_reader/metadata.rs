@@ -113,7 +113,9 @@ impl<F: MetadataFetch> MetadataLoader<F> {
         let mut footer = [0; FOOTER_SIZE];
         footer.copy_from_slice(&suffix[suffix_len - FOOTER_SIZE..suffix_len]);
 
-        let length = ParquetMetaDataReader::decode_footer(&footer)?;
+        let encryption_config = None; // Cube: Not implemented here because this is deprecated.
+        let (length, _footer_encrypted) =
+            ParquetMetaDataReader::decode_footer(&footer, &encryption_config)?;
 
         if file_size < length + FOOTER_SIZE {
             return Err(ParquetError::EOF(format!(

@@ -24,6 +24,9 @@ use crate::schema::types::ColumnPath;
 use std::str::FromStr;
 use std::{collections::HashMap, sync::Arc};
 
+use super::encryption::ParquetEncryptionConfig;
+use super::metadata::FileEncryptionInfo;
+
 /// Default value for [`WriterProperties::data_page_size_limit`]
 pub const DEFAULT_PAGE_SIZE: usize = 1024 * 1024;
 /// Default value for [`WriterProperties::write_batch_size`]
@@ -169,6 +172,7 @@ pub struct WriterProperties {
     column_index_truncate_length: Option<usize>,
     statistics_truncate_length: Option<usize>,
     coerce_types: bool,
+    pub(crate) encryption_info: Option<FileEncryptionInfo>,
 }
 
 impl Default for WriterProperties {
@@ -392,6 +396,7 @@ pub struct WriterPropertiesBuilder {
     column_index_truncate_length: Option<usize>,
     statistics_truncate_length: Option<usize>,
     coerce_types: bool,
+    encryption_info: Option<FileEncryptionInfo>,
 }
 
 impl WriterPropertiesBuilder {
@@ -414,6 +419,7 @@ impl WriterPropertiesBuilder {
             column_index_truncate_length: DEFAULT_COLUMN_INDEX_TRUNCATE_LENGTH,
             statistics_truncate_length: DEFAULT_STATISTICS_TRUNCATE_LENGTH,
             coerce_types: DEFAULT_COERCE_TYPES,
+            encryption_info: None,
         }
     }
 
@@ -436,6 +442,7 @@ impl WriterPropertiesBuilder {
             column_index_truncate_length: self.column_index_truncate_length,
             statistics_truncate_length: self.statistics_truncate_length,
             coerce_types: self.coerce_types,
+            encryption_info: self.encryption_info,
         }
     }
 
@@ -808,6 +815,12 @@ impl WriterPropertiesBuilder {
         self.coerce_types = coerce_types;
         self
     }
+
+    /// Sets encryption params to write with.
+    pub fn set_encryption_info(mut self, value: Option<FileEncryptionInfo>) -> Self {
+        self.encryption_info = value;
+        self
+    }
 }
 
 /// Controls the level of statistics to be computed by the writer and stored in
@@ -1046,6 +1059,7 @@ const DEFAULT_READ_BLOOM_FILTER: bool = false;
 pub struct ReaderProperties {
     codec_options: CodecOptions,
     read_bloom_filter: bool,
+    encryption_config: Option<ParquetEncryptionConfig>,
 }
 
 impl ReaderProperties {
@@ -1063,6 +1077,10 @@ impl ReaderProperties {
     pub(crate) fn read_bloom_filter(&self) -> bool {
         self.read_bloom_filter
     }
+
+    pub(crate) fn encryption_config(&self) -> &Option<ParquetEncryptionConfig> {
+        &self.encryption_config
+    }
 }
 
 /// Builder for parquet file reader configuration. See example on
@@ -1070,6 +1088,7 @@ impl ReaderProperties {
 pub struct ReaderPropertiesBuilder {
     codec_options_builder: CodecOptionsBuilder,
     read_bloom_filter: Option<bool>,
+    encryption_config: Option<ParquetEncryptionConfig>,
 }
 
 /// Reader properties builder.
@@ -1079,6 +1098,7 @@ impl ReaderPropertiesBuilder {
         Self {
             codec_options_builder: CodecOptionsBuilder::default(),
             read_bloom_filter: None,
+            encryption_config: None,
         }
     }
 
@@ -1087,6 +1107,7 @@ impl ReaderPropertiesBuilder {
         ReaderProperties {
             codec_options: self.codec_options_builder.build(),
             read_bloom_filter: self.read_bloom_filter.unwrap_or(DEFAULT_READ_BLOOM_FILTER),
+            encryption_config: self.encryption_config,
         }
     }
 
@@ -1113,6 +1134,12 @@ impl ReaderPropertiesBuilder {
     /// By default bloom filter is set to be read.
     pub fn set_read_bloom_filter(mut self, value: bool) -> Self {
         self.read_bloom_filter = Some(value);
+        self
+    }
+
+    /// Enable and configure or disable parquet encryption
+    pub fn set_encryption_config(mut self, value: Option<ParquetEncryptionConfig>) -> Self {
+        self.encryption_config = value;
         self
     }
 }

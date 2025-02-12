@@ -34,8 +34,9 @@ async fn main() -> Result<()> {
     let path = format!("{testdata}/alltypes_plain.parquet");
     let mut file = File::open(&path).await.unwrap();
 
+    let encryption_config = None;
     // The metadata could be cached in other places, this example only shows how to read
-    let metadata = file.get_metadata().await?;
+    let metadata = file.get_metadata(&encryption_config).await?;
 
     for rg in metadata.row_groups() {
         let mut rowgroup = InMemoryRowGroup::create(rg.clone(), ProjectionMask::all());

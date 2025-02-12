@@ -52,8 +52,15 @@ use crate::bloom_filter::{
 };
 use crate::column::page::{PageIterator, PageReader};
 use crate::errors::{ParquetError, Result};
-use crate::file::metadata::{ParquetMetaData, ParquetMetaDataReader, RowGroupMetaData};
+use crate::file::encryption::{
+    try_into_encryption_params, try_into_encryption_params_with_rg_ordinal,
+    try_into_row_group_ordinal, ParquetEncryptionConfig,
+};
+use crate::file::metadata::{
+    FileEncryptionInfo, ParquetMetaData, ParquetMetaDataReader, RowGroupMetaData,
+};
 use crate::file::page_index::offset_index::OffsetIndexMetaData;
+use crate::file::properties::ReaderProperties;
 use crate::file::reader::{ChunkReader, Length, SerializedPageReader};
 use crate::file::FOOTER_SIZE;
 use crate::format::{BloomFilterAlgorithm, BloomFilterCompression, BloomFilterHash};
@@ -103,7 +110,10 @@ pub trait AsyncFileReader: Send {
     /// Provides asynchronous access to the [`ParquetMetaData`] of a parquet file,
     /// allowing fine-grained control over how metadata is sourced, in particular allowing
     /// for caching, pre-fetching, catalog metadata, etc...
-    fn get_metadata(&mut self) -> BoxFuture<'_, Result<Arc<ParquetMetaData>>>;
+    fn get_metadata(
+        &mut self,
+        encryption_config: &Option<ParquetEncryptionConfig>,
+    ) -> BoxFuture<'_, Result<Arc<ParquetMetaData>>>;
 }
 
 /// This allows Box<dyn AsyncFileReader + '_> to be used as an AsyncFileReader,
@@ -116,8 +126,11 @@ impl AsyncFileReader for Box<dyn AsyncFileReader + '_> {
         self.as_mut().get_byte_ranges(ranges)
     }
 
-    fn get_metadata(&mut self) -> BoxFuture<'_, Result<Arc<ParquetMetaData>>> {
-        self.as_mut().get_metadata()
+    fn get_metadata(
+        &mut self,
+        encryption_config: &Option<ParquetEncryptionConfig>,
+    ) -> BoxFuture<'_, Result<Arc<ParquetMetaData>>> {
+        self.as_mut().get_metadata(encryption_config)
     }
 }
 
@@ -138,7 +151,11 @@ impl<T: AsyncRead + AsyncSeek + Unpin + Send> AsyncFileReader for T {
         .boxed()
     }
 
-    fn get_metadata(&mut self) -> BoxFuture<'_, Result<Arc<ParquetMetaData>>> {
+    fn get_metadata(
+        &mut self,
+        encryption_config: &Option<ParquetEncryptionConfig>,
+    ) -> BoxFuture<'_, Result<Arc<ParquetMetaData>>> {
+        let encryption_config = encryption_config.clone();
         const FOOTER_SIZE_I64: i64 = FOOTER_SIZE as i64;
         async move {
             self.seek(SeekFrom::End(-FOOTER_SIZE_I64)).await?;
@@ -146,14 +163,21 @@ impl<T: AsyncRead + AsyncSeek + Unpin + Send> AsyncFileReader for T {
             let mut buf = [0_u8; FOOTER_SIZE];
             self.read_exact(&mut buf).await?;
 
-            let metadata_len = ParquetMetaDataReader::decode_footer(&buf)?;
+            let (metadata_len, footer_encrypted) =
+                ParquetMetaDataReader::decode_footer(&buf, &encryption_config)?;
             self.seek(SeekFrom::End(-FOOTER_SIZE_I64 - metadata_len as i64))
                 .await?;
 
             let mut buf = Vec::with_capacity(metadata_len);
             self.take(metadata_len as _).read_to_end(&mut buf).await?;
 
-            Ok(Arc::new(ParquetMetaDataReader::decode_metadata(&buf)?))
+            Ok(Arc::new(
+                ParquetMetaDataReader::decode_possibly_encrypted_metadata(
+                    &buf,
+                    footer_encrypted,
+                    &encryption_config,
+                )?,
+            ))
         }
         .boxed()
     }
@@ -175,7 +199,7 @@ impl ArrowReaderMetadata {
     ) -> Result<Self> {
         // TODO: this is all rather awkward. It would be nice if AsyncFileReader::get_metadata
         // took an argument to fetch the page indexes.
-        let mut metadata = input.get_metadata().await?;
+        let mut metadata = input.get_metadata(&options.encryption_config).await?;
 
         if options.page_index
             && metadata.column_index().is_none()
@@ -429,8 +453,17 @@ impl<T: AsyncFileReader + Send + 'static> ParquetRecordBatchStreamBuilder<T> {
         }
         .await?;
 
-        let (header, bitset_offset) =
-            chunk_read_bloom_filter_header_and_offset(offset as u64, buffer.clone())?;
+        let encryption_params = try_into_encryption_params(
+            self.metadata().file_encryption_info(),
+            row_group_idx,
+            column_idx,
+        )?;
+
+        let (header, bitset_offset) = chunk_read_bloom_filter_header_and_offset(
+            offset as u64,
+            buffer.clone(),
+            &encryption_params,
+        )?;
 
         match header.algorithm {
             BloomFilterAlgorithm::BLOCK(_) => {
@@ -448,7 +481,7 @@ impl<T: AsyncFileReader + Send + 'static> ParquetRecordBatchStreamBuilder<T> {
             }
         }
 
-        let bitset = match column_metadata.bloom_filter_length() {
+        let bitset_buf = match column_metadata.bloom_filter_length() {
             Some(_) => buffer.slice((bitset_offset as usize - offset)..),
             None => {
                 let bitset_length: usize = header.num_bytes.try_into().map_err(|_| {
@@ -460,6 +493,8 @@ impl<T: AsyncFileReader + Send + 'static> ParquetRecordBatchStreamBuilder<T> {
                     .await?
             }
         };
+        let bitset =
+            Sbbf::decrypt_bloom_filter_bitset_if_necessary(bitset_buf, &encryption_params)?;
         Ok(Some(Sbbf::new(&bitset)))
     }
 
@@ -564,10 +599,12 @@ where
 
         let mut row_group = InMemoryRowGroup {
             metadata: meta,
+            row_group_ordinal: try_into_row_group_ordinal(row_group_idx)?,
             // schema: meta.schema_descr_ptr(),
             row_count: meta.num_rows() as usize,
             column_chunks: vec![None; meta.columns().len()],
             offset_index,
+            encryption_info: self.metadata.file_encryption_info(),
         };
 
         if let Some(filter) = self.filter.as_mut() {
@@ -850,9 +887,11 @@ where
 /// An in-memory collection of column chunks
 struct InMemoryRowGroup<'a> {
     metadata: &'a RowGroupMetaData,
+    row_group_ordinal: i16,
     offset_index: Option<&'a [OffsetIndexMetaData]>,
     column_chunks: Vec<Option<Arc<ColumnChunkData>>>,
     row_count: usize,
+    encryption_info: &'a Option<FileEncryptionInfo>,
 }
 
 impl InMemoryRowGroup<'_> {
@@ -964,12 +1003,20 @@ impl RowGroups for InMemoryRowGroup<'_> {
                     // filter out empty offset indexes (old versions specified Some(vec![]) when no present)
                     .filter(|index| !index.is_empty())
                     .map(|index| index[i].page_locations.clone());
-                let page_reader: Box<dyn PageReader> = Box::new(SerializedPageReader::new(
-                    data.clone(),
-                    self.metadata.column(i),
-                    self.row_count,
-                    page_locations,
-                )?);
+                let encryption_params = try_into_encryption_params_with_rg_ordinal(
+                    &self.encryption_info,
+                    self.row_group_ordinal,
+                    i,
+                )?;
+                let page_reader: Box<dyn PageReader> =
+                    Box::new(SerializedPageReader::new_with_properties(
+                        data.clone(),
+                        self.metadata.column(i),
+                        self.row_count,
+                        page_locations,
+                        Arc::new(ReaderProperties::builder().build()),
+                        encryption_params,
+                    )?);
 
                 Ok(Box::new(ColumnChunkIterator {
                     reader: Some(Ok(page_reader)),
@@ -1088,7 +1135,11 @@ mod tests {
             futures::future::ready(Ok(self.data.slice(range))).boxed()
         }
 
-        fn get_metadata(&mut self) -> BoxFuture<'_, Result<Arc<ParquetMetaData>>> {
+        fn get_metadata(
+            &mut self,
+            encryption_config: &Option<ParquetEncryptionConfig>,
+        ) -> BoxFuture<'_, Result<Arc<ParquetMetaData>>> {
+            assert!(encryption_config.is_none());
             futures::future::ready(Ok(self.metadata.clone())).boxed()
         }
     }

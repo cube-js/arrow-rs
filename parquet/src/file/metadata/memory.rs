@@ -28,6 +28,8 @@ use crate::file::statistics::{Statistics, ValueStatistics};
 use crate::format::{BoundaryOrder, PageLocation, SortingColumn};
 use std::sync::Arc;
 
+use super::FileEncryptionInfo;
+
 /// Trait for calculating the size of various containers
 pub trait HeapSize {
     /// Return the size of any bytes allocated on the heap by this object,
@@ -101,6 +103,16 @@ impl HeapSize for ColumnChunkMetaData {
             + self.unencoded_byte_array_data_bytes.heap_size()
             + self.repetition_level_histogram.heap_size()
             + self.definition_level_histogram.heap_size()
+    }
+}
+
+impl HeapSize for FileEncryptionInfo {
+    fn heap_size(&self) -> usize {
+        let FileEncryptionInfo {
+            encryption_key: _,
+            random_file_identifier: _,
+        } = &self;
+        return 0;
     }
 }
 

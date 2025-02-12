@@ -118,6 +118,11 @@ pub use reader::ParquetMetaDataReader;
 pub use writer::ParquetMetaDataWriter;
 pub(crate) use writer::ThriftMetadataWriter;
 
+use super::encryption::{
+    generate_random_file_identifier, ParquetEncryptionConfig, ParquetEncryptionKey,
+    ParquetEncryptionMode, RandomFileIdentifier,
+};
+
 /// Page level statistics for each column chunk of each row group.
 ///
 /// This structure is an in-memory representation of multiple [`ColumnIndex`]
@@ -147,6 +152,30 @@ pub type ParquetColumnIndex = Vec<Vec<Index>>;
 /// [PageIndex documentation]: https://github.com/apache/parquet-format/blob/master/PageIndex.md
 pub type ParquetOffsetIndex = Vec<Vec<OffsetIndexMetaData>>;
 
+/// Contains file level encryption information (key and random file identifier)
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileEncryptionInfo {
+    /// The encryption key used to encrypt every part of the file.  (Multi-key Parquet encryption format is not implemented.)
+    pub encryption_key: ParquetEncryptionKey,
+    /// The random file identifier, generated for use in aads.
+    pub random_file_identifier: RandomFileIdentifier,
+}
+
+impl FileEncryptionInfo {
+    /// Returns the write configuration for encryption
+    pub fn new_for_write(
+        encryption_config: &ParquetEncryptionConfig,
+    ) -> Option<FileEncryptionInfo> {
+        match encryption_config.write_key() {
+            ParquetEncryptionMode::Unencrypted => None,
+            ParquetEncryptionMode::EncryptedFooter(key_info) => Some(FileEncryptionInfo {
+                encryption_key: key_info.key,
+                random_file_identifier: generate_random_file_identifier(),
+            }),
+        }
+    }
+}
+
 /// Parsed metadata for a single Parquet file
 ///
 /// This structure is stored in the footer of Parquet files, in the format
@@ -168,6 +197,8 @@ pub type ParquetOffsetIndex = Vec<Vec<OffsetIndexMetaData>>;
 pub struct ParquetMetaData {
     /// File level metadata
     file_metadata: FileMetaData,
+    /// File encryption info (if present, parsed from an encrypted footer)
+    metadata_encryption_info: Option<FileEncryptionInfo>,
     /// Row group metadata
     row_groups: Vec<RowGroupMetaData>,
     /// Page level index for each page in each column chunk
@@ -182,6 +213,7 @@ impl ParquetMetaData {
     pub fn new(file_metadata: FileMetaData, row_groups: Vec<RowGroupMetaData>) -> Self {
         ParquetMetaData {
             file_metadata,
+            metadata_encryption_info: None,
             row_groups,
             column_index: None,
             offset_index: None,
@@ -212,6 +244,11 @@ impl ParquetMetaData {
     /// Returns file metadata as reference.
     pub fn file_metadata(&self) -> &FileMetaData {
         &self.file_metadata
+    }
+
+    /// Returns all information necessary to decrypt the file.
+    pub fn file_encryption_info(&self) -> &Option<FileEncryptionInfo> {
+        &self.metadata_encryption_info
     }
 
     /// Returns number of row groups in this file.
@@ -267,6 +304,7 @@ impl ParquetMetaData {
     pub fn memory_size(&self) -> usize {
         std::mem::size_of::<Self>()
             + self.file_metadata.heap_size()
+            + self.metadata_encryption_info.heap_size()
             + self.row_groups.heap_size()
             + self.column_index.heap_size()
             + self.offset_index.heap_size()
@@ -1849,7 +1887,9 @@ mod tests {
         let parquet_meta = ParquetMetaDataBuilder::new(file_metadata.clone())
             .set_row_groups(row_group_meta_with_stats)
             .build();
-        let base_expected_size = 2312;
+        // This is expressed with "+ std::mem::size_of::<FileEncryptionInfo>..." to explain how the value is different from upstream arrow-rs.
+        let base_expected_size =
+            2312 + std::mem::size_of::<FileEncryptionInfo>().next_multiple_of(8);
 
         assert_eq!(parquet_meta.memory_size(), base_expected_size);
 
@@ -1876,7 +1916,9 @@ mod tests {
             ]]))
             .build();
 
-        let bigger_expected_size = 2816;
+        // This is expressed with "+ std::mem::size_of::<FileEncryptionInfo>..." to explain how the value is different from upstream arrow-rs.
+        let bigger_expected_size =
+            2816 + std::mem::size_of::<FileEncryptionInfo>().next_multiple_of(8);
         // more set fields means more memory usage
         assert!(bigger_expected_size > base_expected_size);
         assert_eq!(parquet_meta.memory_size(), bigger_expected_size);
