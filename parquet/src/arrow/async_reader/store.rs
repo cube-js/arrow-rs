@@ -26,6 +26,7 @@ use object_store::{ObjectMeta, ObjectStore};
 
 use crate::arrow::async_reader::AsyncFileReader;
 use crate::errors::Result;
+use crate::file::encryption::ParquetEncryptionConfig;
 use crate::file::metadata::{ParquetMetaData, ParquetMetaDataReader};
 
 /// Reads Parquet files in object storage using [`ObjectStore`].
@@ -122,10 +123,14 @@ impl AsyncFileReader for ParquetObjectReader {
         .boxed()
     }
 
-    fn get_metadata(&mut self) -> BoxFuture<'_, Result<Arc<ParquetMetaData>>> {
+    fn get_metadata(
+        &mut self,
+        encryption_config: &Option<ParquetEncryptionConfig>,
+    ) -> BoxFuture<'_, Result<Arc<ParquetMetaData>>> {
+        let encryption_config = encryption_config.clone();
         Box::pin(async move {
             let file_size = self.meta.size;
-            let metadata = ParquetMetaDataReader::new()
+            let metadata = ParquetMetaDataReader::new_with_encryption_config(encryption_config)
                 .with_column_indexes(self.preload_column_index)
                 .with_offset_indexes(self.preload_offset_index)
                 .with_prefetch_hint(self.metadata_size_hint)

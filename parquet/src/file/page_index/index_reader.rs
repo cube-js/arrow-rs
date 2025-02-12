@@ -20,10 +20,14 @@
 use crate::basic::Type;
 use crate::data_type::Int96;
 use crate::errors::ParquetError;
-use crate::file::metadata::ColumnChunkMetaData;
+use crate::file::encryption::{
+    decrypt_module, parquet_aad_suffix_no_page, row_group_ordinal_error, try_into_column_ordinal,
+};
+use crate::file::metadata::{ColumnChunkMetaData, FileEncryptionInfo};
 use crate::file::page_index::index::{Index, NativeIndex};
 use crate::file::page_index::offset_index::OffsetIndexMetaData;
 use crate::file::reader::ChunkReader;
+use crate::file::serialized_reader::{COLUMN_INDEX_MODULE_TYPE, OFFSET_INDEX_MODULE_TYPE};
 use crate::format::{ColumnIndex, OffsetIndex, PageLocation};
 use crate::thrift::{TCompactSliceInputProtocol, TSerializable};
 use std::ops::Range;
@@ -49,6 +53,7 @@ pub(crate) fn acc_range(a: Option<Range<usize>>, b: Option<Range<usize>>) -> Opt
 /// See [Page Index Documentation] for more details.
 ///
 /// [Page Index Documentation]: https://github.com/apache/parquet-format/blob/master/PageIndex.md
+#[cfg(test)] // Needs encryption implementation
 pub fn read_columns_indexes<R: ChunkReader>(
     reader: &R,
     chunks: &[ColumnChunkMetaData],
@@ -122,6 +127,7 @@ pub fn read_pages_locations<R: ChunkReader>(
 /// See [Page Index Documentation] for more details.
 ///
 /// [Page Index Documentation]: https://github.com/apache/parquet-format/blob/master/PageIndex.md
+#[cfg(test)] // Doesn't implement encryption
 pub fn read_offset_indexes<R: ChunkReader>(
     reader: &R,
     chunks: &[ColumnChunkMetaData],
@@ -147,6 +153,39 @@ pub fn read_offset_indexes<R: ChunkReader>(
         .collect()
 }
 
+pub(crate) fn decode_possibly_encrypted_offset_index(
+    data: &[u8],
+    encryption_info: &Option<FileEncryptionInfo>,
+    row_group_ordinal: Option<i16>,
+    column_ordinal: usize,
+) -> Result<OffsetIndexMetaData, ParquetError> {
+    if let Some(ei) = encryption_info {
+        let Some(row_group_ordinal) = row_group_ordinal else {
+            return Err(row_group_ordinal_error());
+        };
+        let column_ordinal = try_into_column_ordinal(column_ordinal)?;
+
+        let aad_suffix = parquet_aad_suffix_no_page(
+            &ei.random_file_identifier,
+            OFFSET_INDEX_MODULE_TYPE,
+            row_group_ordinal,
+            column_ordinal,
+        );
+
+        let mut data = data;
+        let cursor = decrypt_module("offset index", &mut data, &ei.encryption_key, &aad_suffix)?;
+
+        if data.len() != 0 {
+            return Err(ParquetError::General(
+                "Column index length is larger than encrypted module".to_string(),
+            ));
+        }
+        decode_offset_index(&cursor.get_ref()[cursor.position() as usize..])
+    } else {
+        decode_offset_index(data)
+    }
+}
+
 pub(crate) fn decode_offset_index(data: &[u8]) -> Result<OffsetIndexMetaData, ParquetError> {
     let mut prot = TCompactSliceInputProtocol::new(data);
     let offset = OffsetIndex::read_from_in_protocol(&mut prot)?;
@@ -157,6 +196,40 @@ pub(crate) fn decode_page_locations(data: &[u8]) -> Result<Vec<PageLocation>, Pa
     let mut prot = TCompactSliceInputProtocol::new(data);
     let offset = OffsetIndex::read_from_in_protocol(&mut prot)?;
     Ok(offset.page_locations)
+}
+
+pub(crate) fn decode_possibly_encrypted_column_index(
+    data: &[u8],
+    column_type: Type,
+    encryption_info: &Option<FileEncryptionInfo>,
+    row_group_ordinal: Option<i16>,
+    column_ordinal: usize,
+) -> Result<Index, ParquetError> {
+    if let Some(ei) = encryption_info {
+        let Some(row_group_ordinal) = row_group_ordinal else {
+            return Err(row_group_ordinal_error());
+        };
+        let column_ordinal: u16 = try_into_column_ordinal(column_ordinal)?;
+
+        let aad_suffix = parquet_aad_suffix_no_page(
+            &ei.random_file_identifier,
+            COLUMN_INDEX_MODULE_TYPE,
+            row_group_ordinal,
+            column_ordinal,
+        );
+
+        let mut data = data;
+        let cursor = decrypt_module("column index", &mut data, &ei.encryption_key, &aad_suffix)?;
+
+        if data.len() != 0 {
+            return Err(ParquetError::General(
+                "Column index length is larger than encrypted module".to_string(),
+            ));
+        }
+        decode_column_index(&cursor.get_ref()[cursor.position() as usize..], column_type)
+    } else {
+        decode_column_index(data, column_type)
+    }
 }
 
 pub(crate) fn decode_column_index(data: &[u8], column_type: Type) -> Result<Index, ParquetError> {

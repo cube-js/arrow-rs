@@ -20,7 +20,8 @@
 
 use std::collections::VecDeque;
 use std::iter;
-use std::{fs::File, io::Read, path::Path, sync::Arc};
+use std::path::Path;
+use std::{fs::File, io::Read, sync::Arc};
 
 use crate::basic::{Encoding, Type};
 use crate::bloom_filter::Sbbf;
@@ -41,6 +42,11 @@ use crate::schema::types::Type as SchemaType;
 use crate::thrift::{TCompactSliceInputProtocol, TSerializable};
 use bytes::Bytes;
 use thrift::protocol::TCompactInputProtocol;
+
+use super::encryption::{
+    decrypt_module, parquet_aad_suffix, try_into_encryption_params_with_rg_ordinal,
+    try_into_row_group_ordinal, RowGroupColumnEncryptionParams,
+};
 
 impl TryFrom<File> for SerializedFileReader<File> {
     type Error = ParquetError;
@@ -190,9 +196,11 @@ impl<R: 'static + ChunkReader> SerializedFileReader<R> {
     /// Creates file reader from a Parquet file with read options.
     /// Returns error if Parquet file does not exist or is corrupt.
     pub fn new_with_options(chunk_reader: R, options: ReadOptions) -> Result<Self> {
-        let mut metadata_builder = ParquetMetaDataReader::new()
-            .parse_and_finish(&chunk_reader)?
-            .into_builder();
+        let mut metadata_builder = ParquetMetaDataReader::new_with_encryption_config(
+            options.props.encryption_config().clone(),
+        )
+        .parse_and_finish(&chunk_reader)?
+        .into_builder();
         let mut predicates = options.predicates;
 
         // Filter row groups based on the predicates
@@ -250,12 +258,34 @@ impl<R: 'static + ChunkReader> FileReader for SerializedFileReader<R> {
 
     fn get_row_group(&self, i: usize) -> Result<Box<dyn RowGroupReader + '_>> {
         let row_group_metadata = self.metadata.row_group(i);
+
+        // Parquet encryption documentation says the RowGroupMetaData is supposed to have the
+        // ordinal set.  The values are supposed to be 0..n-1.  So, we limit row group ordinals to
+        // 15 bits with this `try_into_row_group_ordinal` conversion even if encryption is not
+        // enabled.  The writing side of this parquet library already did this in
+        // SerializedFileWriter.
+        let row_group_ordinal: i16 = try_into_row_group_ordinal(i)?;
+        if let Some(rgm_rg_ordinal) = row_group_metadata.ordinal() {
+            if rgm_rg_ordinal != row_group_ordinal {
+                return Err(general_err!(
+                    "row group ordinal in RowGroupMetaData is expected to have value {}",
+                    row_group_ordinal
+                ));
+            }
+        } else if self.metadata.file_encryption_info().is_some() {
+            return Err(general_err!(
+                "row group ordinal in RowGroupMetaData is expected to be present in encrypted file"
+            ));
+        }
+
         // Row groups should be processed sequentially.
         let props = Arc::clone(&self.props);
         let f = Arc::clone(&self.chunk_reader);
         Ok(Box::new(SerializedRowGroupReader::new(
             f,
+            &self.metadata.file_encryption_info(),
             row_group_metadata,
+            row_group_ordinal,
             self.metadata.offset_index().map(|x| x[i].as_slice()),
             props,
         )?))
@@ -269,7 +299,9 @@ impl<R: 'static + ChunkReader> FileReader for SerializedFileReader<R> {
 /// A serialized implementation for Parquet [`RowGroupReader`].
 pub struct SerializedRowGroupReader<'a, R: ChunkReader> {
     chunk_reader: Arc<R>,
+    encryption_info: &'a Option<FileEncryptionInfo>,
     metadata: &'a RowGroupMetaData,
+    row_group_ordinal: i16,
     offset_index: Option<&'a [OffsetIndexMetaData]>,
     props: ReaderPropertiesPtr,
     bloom_filters: Vec<Option<Sbbf>>,
@@ -279,7 +311,9 @@ impl<'a, R: ChunkReader> SerializedRowGroupReader<'a, R> {
     /// Creates new row group reader from a file, row group metadata and custom config.
     pub fn new(
         chunk_reader: Arc<R>,
+        encryption_info: &'a Option<FileEncryptionInfo>,
         metadata: &'a RowGroupMetaData,
+        row_group_ordinal: i16,
         offset_index: Option<&'a [OffsetIndexMetaData]>,
         props: ReaderPropertiesPtr,
     ) -> Result<Self> {
@@ -287,14 +321,24 @@ impl<'a, R: ChunkReader> SerializedRowGroupReader<'a, R> {
             metadata
                 .columns()
                 .iter()
-                .map(|col| Sbbf::read_from_column_chunk(col, chunk_reader.clone()))
+                .enumerate()
+                .map(|(col_idx, col)| {
+                    let encryption_params = try_into_encryption_params_with_rg_ordinal(
+                        encryption_info,
+                        row_group_ordinal,
+                        col_idx,
+                    )?;
+                    Sbbf::read_from_column_chunk(col, chunk_reader.clone(), &encryption_params)
+                })
                 .collect::<Result<Vec<_>>>()?
         } else {
             iter::repeat(None).take(metadata.columns().len()).collect()
         };
         Ok(Self {
             chunk_reader,
+            encryption_info,
             metadata,
+            row_group_ordinal,
             offset_index,
             props,
             bloom_filters,
@@ -324,6 +368,11 @@ impl<R: 'static + ChunkReader> RowGroupReader for SerializedRowGroupReader<'_, R
             self.metadata.num_rows() as usize,
             page_locations,
             props,
+            try_into_encryption_params_with_rg_ordinal(
+                &self.encryption_info,
+                self.row_group_ordinal,
+                i,
+            )?,
         )?))
     }
 
@@ -338,14 +387,53 @@ impl<R: 'static + ChunkReader> RowGroupReader for SerializedRowGroupReader<'_, R
 }
 
 /// Reads a [`PageHeader`] from the provided [`Read`]
-pub(crate) fn read_page_header<T: Read>(input: &mut T) -> Result<PageHeader> {
-    let mut prot = TCompactInputProtocol::new(input);
-    let page_header = PageHeader::read_from_in_protocol(&mut prot)?;
-    Ok(page_header)
+pub(crate) fn read_page_header<T: Read>(
+    input: &mut T,
+    aad_header_module_type: u8,
+    encryption_params: &Option<RowGroupColumnEncryptionParams>,
+    aad_page_ordinal: Option<u16>,
+) -> Result<PageHeader> {
+    if let Some(RowGroupColumnEncryptionParams {
+        encryption_info,
+        row_group_ordinal,
+        column_ordinal,
+    }) = encryption_params
+    {
+        let (aad_len, aad_buf) = parquet_aad_suffix(
+            &encryption_info.random_file_identifier,
+            aad_header_module_type,
+            *row_group_ordinal,
+            *column_ordinal,
+            aad_page_ordinal,
+        );
+
+        let plaintext_cursor = decrypt_module(
+            "PageHeader",
+            input,
+            &encryption_info.encryption_key,
+            &aad_buf[..aad_len],
+        )?;
+
+        // TCompactSliceInputProtocol is supposedly faster.
+        let mut prot = TCompactSliceInputProtocol::new(
+            &plaintext_cursor.get_ref()[plaintext_cursor.position() as usize..],
+        );
+        let page_header = PageHeader::read_from_in_protocol(&mut prot)?;
+        Ok(page_header)
+    } else {
+        let mut prot = TCompactInputProtocol::new(input);
+        let page_header = PageHeader::read_from_in_protocol(&mut prot)?;
+        Ok(page_header)
+    }
 }
 
 /// Reads a [`PageHeader`] from the provided [`Read`] returning the number of bytes read
-fn read_page_header_len<T: Read>(input: &mut T) -> Result<(usize, PageHeader)> {
+fn read_page_header_len<T: Read>(
+    input: &mut T,
+    aad_header_module_type: u8,
+    encryption_params: &Option<RowGroupColumnEncryptionParams>,
+    aad_page_ordinal: Option<u16>,
+) -> Result<(usize, PageHeader)> {
     /// A wrapper around a [`std::io::Read`] that keeps track of the bytes read
     struct TrackedRead<R> {
         inner: R,
@@ -364,7 +452,12 @@ fn read_page_header_len<T: Read>(input: &mut T) -> Result<(usize, PageHeader)> {
         inner: input,
         bytes_read: 0,
     };
-    let header = read_page_header(&mut tracked)?;
+    let header = read_page_header(
+        &mut tracked,
+        aad_header_module_type,
+        encryption_params,
+        aad_page_ordinal,
+    )?;
     Ok((tracked.bytes_read, header))
 }
 
@@ -372,6 +465,9 @@ fn read_page_header_len<T: Read>(input: &mut T) -> Result<(usize, PageHeader)> {
 pub(crate) fn decode_page(
     page_header: PageHeader,
     buffer: Bytes,
+    aad_module_type: u8,
+    encryption_params: &Option<RowGroupColumnEncryptionParams>,
+    aad_page_ordinal: Option<u16>,
     physical_type: Type,
     decompressor: Option<&mut Box<dyn Codec>>,
 ) -> Result<Page> {
@@ -399,6 +495,34 @@ pub(crate) fn decode_page(
         // When is_compressed flag is missing the page is considered compressed
         can_decompress = header_v2.is_compressed.unwrap_or(true);
     }
+
+    let buffer: Bytes = if let Some(RowGroupColumnEncryptionParams {
+        encryption_info,
+        row_group_ordinal,
+        column_ordinal,
+    }) = encryption_params
+    {
+        let (aad_len, aad_buf) = parquet_aad_suffix(
+            &encryption_info.random_file_identifier,
+            aad_module_type,
+            *row_group_ordinal,
+            *column_ordinal,
+            aad_page_ordinal,
+        );
+
+        let mut slice = buffer.as_ref();
+        let cursor = decrypt_module(
+            "Page data",
+            &mut slice,
+            &encryption_info.encryption_key,
+            &aad_buf[..aad_len],
+        )?;
+        let cursor_pos: u64 = cursor.position();
+        let buf = Bytes::from(cursor.into_inner());
+        buf.slice(cursor_pos as usize..)
+    } else {
+        buffer
+    };
 
     // TODO: page header could be huge because of statistics. We should set a
     // maximum page header size and abort if that is exceeded.
@@ -505,6 +629,12 @@ pub struct SerializedPageReader<R: ChunkReader> {
     /// The chunk reader
     reader: Arc<R>,
 
+    encryption_params: Option<RowGroupColumnEncryptionParams>,
+
+    // Mutable: the page_ordinal of the next page read.  Initialized with None in the case we expect
+    // to start with a dictionary page, then gets incremented to Some(0) before the first data page.
+    page_ordinal: Option<u16>,
+
     /// The compression codec for this column chunk. Only set for non-PLAIN codec.
     decompressor: Option<Box<dyn Codec>>,
 
@@ -523,7 +653,14 @@ impl<R: ChunkReader> SerializedPageReader<R> {
         page_locations: Option<Vec<PageLocation>>,
     ) -> Result<Self> {
         let props = Arc::new(ReaderProperties::builder().build());
-        SerializedPageReader::new_with_properties(reader, meta, total_rows, page_locations, props)
+        SerializedPageReader::new_with_properties(
+            reader,
+            meta,
+            total_rows,
+            page_locations,
+            props,
+            None,
+        )
     }
 
     /// Creates a new serialized page with custom options.
@@ -533,6 +670,7 @@ impl<R: ChunkReader> SerializedPageReader<R> {
         total_rows: usize,
         page_locations: Option<Vec<PageLocation>>,
         props: ReaderPropertiesPtr,
+        encryption_params: Option<RowGroupColumnEncryptionParams>,
     ) -> Result<Self> {
         let decompressor = create_codec(meta.compression(), props.codec_options())?;
         let (start, len) = meta.byte_range();
@@ -561,12 +699,34 @@ impl<R: ChunkReader> SerializedPageReader<R> {
             },
         };
 
+        let dictionary_enabled = meta.dictionary_page_offset().is_some();
+        let page_ordinal = if dictionary_enabled {
+            None::<u16>
+        } else {
+            Some(0)
+        };
+
         Ok(Self {
             reader,
+            encryption_params,
+            page_ordinal,
             decompressor,
             state,
             physical_type: meta.column_type(),
         })
+    }
+
+    #[inline]
+    fn next_page_ordinal(ordinal: Option<u16>) -> Result<Option<u16>> {
+        let next_value = if let Some(n) = ordinal {
+            let n_plus_1 = n.checked_add(1).ok_or_else(|| {
+                general_err!("Number of pages in row group exceeded {}", u16::MAX)
+            })?;
+            n_plus_1
+        } else {
+            0
+        };
+        Ok(Some(next_value))
     }
 }
 
@@ -578,9 +738,53 @@ impl<R: ChunkReader> Iterator for SerializedPageReader<R> {
     }
 }
 
+/// used in Parquet encryption
+pub const DATA_PAGE_MODULE_TYPE: u8 = 2;
+/// used in Parquet encryption
+pub const DICTIONARY_PAGE_MODULE_TYPE: u8 = 3;
+/// used in Parquet encryption
+pub const DATA_PAGE_HEADER_MODULE_TYPE: u8 = 4;
+/// used in Parquet encryption
+pub const DICTIONARY_PAGE_HEADER_MODULE_TYPE: u8 = 5;
+/// used in Parquet encryption
+pub const COLUMN_INDEX_MODULE_TYPE: u8 = 6;
+/// used in Parquet encryption
+pub const OFFSET_INDEX_MODULE_TYPE: u8 = 7;
+/// used in Parquet encryption
+pub const BLOOM_FILTER_HEADER_MODULE_TYPE: u8 = 8;
+/// used in Parquet encryption
+pub const BLOOM_FILTER_BITSET_MODULE_TYPE: u8 = 9;
+
+impl<R: ChunkReader> SerializedPageReader<R> {
+    // The SerializedPageReader uses self.page_ordinal to be None when a dictionary page is expected
+    // up front; this function uses that to figure out which module type value to expect.
+    #[inline]
+    fn module_types(page_ordinal: Option<u16>) -> (u8, u8) {
+        if page_ordinal.is_some() {
+            // Data pages
+            (DATA_PAGE_MODULE_TYPE, DATA_PAGE_HEADER_MODULE_TYPE)
+        } else {
+            // The dictionary page
+            (
+                DICTIONARY_PAGE_MODULE_TYPE,
+                DICTIONARY_PAGE_HEADER_MODULE_TYPE,
+            )
+        }
+    }
+}
+
 impl<R: ChunkReader> PageReader for SerializedPageReader<R> {
     fn get_next_page(&mut self) -> Result<Option<Page>> {
         loop {
+            let aad_page_ordinal = self.page_ordinal;
+
+            let aad_module_type: u8;
+            let aad_header_module_type: u8;
+            // This assumes we have either a data page or dictionary page.  INDEX_PAGE is an
+            // "unknown page type" and encryption would fail if we encountered it -- but our
+            // encrypted files don't have it.
+            (aad_module_type, aad_header_module_type) = Self::module_types(aad_page_ordinal);
+
             let page = match &mut self.state {
                 SerializedPageReaderState::Values {
                     offset,
@@ -595,7 +799,12 @@ impl<R: ChunkReader> PageReader for SerializedPageReader<R> {
                     let header = if let Some(header) = next_page_header.take() {
                         *header
                     } else {
-                        let (header_len, header) = read_page_header_len(&mut read)?;
+                        let (header_len, header) = read_page_header_len(
+                            &mut read,
+                            aad_header_module_type,
+                            &self.encryption_params,
+                            aad_page_ordinal,
+                        )?;
                         *offset += header_len;
                         *remaining -= header_len;
                         header
@@ -622,6 +831,9 @@ impl<R: ChunkReader> PageReader for SerializedPageReader<R> {
                     decode_page(
                         header,
                         Bytes::from(buffer),
+                        aad_module_type,
+                        &self.encryption_params,
+                        aad_page_ordinal,
                         self.physical_type,
                         self.decompressor.as_mut(),
                     )?
@@ -642,20 +854,39 @@ impl<R: ChunkReader> PageReader for SerializedPageReader<R> {
                     let page_len = front.compressed_page_size as usize;
 
                     let buffer = self.reader.get_bytes(front.offset as u64, page_len)?;
+                    let mut byte_slice: &[u8] = buffer.as_ref();
 
-                    let mut prot = TCompactSliceInputProtocol::new(buffer.as_ref());
-                    let header = PageHeader::read_from_in_protocol(&mut prot)?;
-                    let offset = buffer.len() - prot.as_slice().len();
+                    // We specialize for the non-encrypted version to avoid a performance
+                    // regression, because TCompactSliceInputProtocol is supposedly faster,
+                    // read_page_header_len's TrackedRead is extra fluff, etc.
+                    let (offset, header) = if self.encryption_params.is_some() {
+                        read_page_header_len(
+                            &mut byte_slice,
+                            aad_header_module_type,
+                            &self.encryption_params,
+                            aad_page_ordinal,
+                        )?
+                    } else {
+                        let mut prot = TCompactSliceInputProtocol::new(buffer.as_ref());
+                        let header = PageHeader::read_from_in_protocol(&mut prot)?;
+                        let offset = buffer.len() - prot.as_slice().len();
+                        (offset, header)
+                    };
 
                     let bytes = buffer.slice(offset..);
                     decode_page(
                         header,
                         bytes,
+                        aad_module_type,
+                        &self.encryption_params,
+                        aad_page_ordinal,
                         self.physical_type,
                         self.decompressor.as_mut(),
                     )?
                 }
             };
+
+            self.page_ordinal = Self::next_page_ordinal(aad_page_ordinal)?;
 
             return Ok(Some(page));
         }
@@ -682,7 +913,16 @@ impl<R: ChunkReader> PageReader for SerializedPageReader<R> {
                         }
                     } else {
                         let mut read = self.reader.get_read(*offset as u64)?;
-                        let (header_len, header) = read_page_header_len(&mut read)?;
+
+                        let aad_page_ordinal = self.page_ordinal;
+                        let (aad_header_module_type, _) = Self::module_types(aad_page_ordinal);
+
+                        let (header_len, header) = read_page_header_len(
+                            &mut read,
+                            aad_header_module_type,
+                            &self.encryption_params,
+                            aad_page_ordinal,
+                        )?;
                         *offset += header_len;
                         *remaining_bytes -= header_len;
                         let page_meta = if let Ok(page_meta) = (&header).try_into() {
@@ -726,7 +966,8 @@ impl<R: ChunkReader> PageReader for SerializedPageReader<R> {
     }
 
     fn skip_next_page(&mut self) -> Result<()> {
-        match &mut self.state {
+        let aad_page_ordinal = self.page_ordinal;
+        let res = match &mut self.state {
             SerializedPageReaderState::Values {
                 offset,
                 remaining_bytes,
@@ -738,7 +979,15 @@ impl<R: ChunkReader> PageReader for SerializedPageReader<R> {
                     *remaining_bytes -= buffered_header.compressed_page_size as usize;
                 } else {
                     let mut read = self.reader.get_read(*offset as u64)?;
-                    let (header_len, header) = read_page_header_len(&mut read)?;
+
+                    let (aad_header_module_type, _) = Self::module_types(aad_page_ordinal);
+
+                    let (header_len, header) = read_page_header_len(
+                        &mut read,
+                        aad_header_module_type,
+                        &self.encryption_params,
+                        aad_page_ordinal,
+                    )?;
                     let data_page_size = header.compressed_page_size as usize;
                     *offset += header_len + data_page_size;
                     *remaining_bytes -= header_len + data_page_size;
@@ -750,7 +999,11 @@ impl<R: ChunkReader> PageReader for SerializedPageReader<R> {
 
                 Ok(())
             }
-        }
+        };
+
+        self.page_ordinal = Self::next_page_ordinal(aad_page_ordinal)?;
+
+        res
     }
 
     fn at_record_boundary(&mut self) -> Result<bool> {

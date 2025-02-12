@@ -21,6 +21,7 @@ use bytes::Bytes;
 use half::f16;
 
 use crate::bloom_filter::Sbbf;
+use crate::file::encryption::try_into_page_ordinal;
 use crate::format::{BoundaryOrder, ColumnIndex, OffsetIndex};
 use std::collections::{BTreeSet, VecDeque};
 use std::str;
@@ -258,6 +259,8 @@ struct ColumnMetrics<T: Default> {
     total_bytes_written: u64,
     total_rows_written: u64,
     total_uncompressed_size: u64,
+    // Includes encryption overhead -- the thrift definition field includes encryption overhead, and
+    // we keep its name here.
     total_compressed_size: u64,
     total_num_values: u64,
     dictionary_page_offset: Option<u64>,
@@ -330,6 +333,7 @@ pub struct GenericColumnWriter<'a, E: ColumnValueEncoder> {
     statistics_enabled: EnabledStatistics,
 
     page_writer: Box<dyn PageWriter + 'a>,
+    page_ordinal: usize,
     codec: Compression,
     compressor: Option<Box<dyn Codec>>,
     encoder: E,
@@ -394,11 +398,15 @@ impl<'a, E: ColumnValueEncoder> GenericColumnWriter<'a, E> {
             column_index_builder.to_invalid()
         }
 
+        // We start counting pages from zero.
+        let page_ordinal: usize = 0;
+
         Self {
             descr,
             props,
             statistics_enabled,
             page_writer,
+            page_ordinal,
             codec,
             compressor,
             encoder,
@@ -1171,7 +1179,10 @@ impl<'a, E: ColumnValueEncoder> GenericColumnWriter<'a, E> {
     #[inline]
     fn write_data_page(&mut self, page: CompressedPage) -> Result<()> {
         self.encodings.insert(page.encoding());
-        let page_spec = self.page_writer.write_page(page)?;
+        let page_ordinal = self.page_ordinal;
+        let aad_page_ordinal: Option<u16> = Some(try_into_page_ordinal(page_ordinal)?);
+        self.page_ordinal += 1;
+        let page_spec = self.page_writer.write_page(page, aad_page_ordinal)?;
         // update offset index
         // compressed_size = header_size + compressed_data_size
         self.offset_index_builder
@@ -1207,7 +1218,7 @@ impl<'a, E: ColumnValueEncoder> GenericColumnWriter<'a, E> {
         };
 
         self.encodings.insert(compressed_page.encoding());
-        let page_spec = self.page_writer.write_page(compressed_page)?;
+        let page_spec = self.page_writer.write_page(compressed_page, None)?;
         self.update_metrics_for_page(page_spec);
         // For the directory page, don't need to update column/offset index.
         Ok(())
@@ -1999,7 +2010,7 @@ mod tests {
     fn test_mixed_precomputed_statistics() {
         let mut buf = Vec::with_capacity(100);
         let mut write = TrackedWrite::new(&mut buf);
-        let page_writer = Box::new(SerializedPageWriter::new(&mut write));
+        let page_writer = Box::new(SerializedPageWriter::new(&mut write, None));
         let props = Default::default();
         let mut writer = get_test_column_writer::<Int32Type>(page_writer, 0, 0, props);
 
@@ -2027,6 +2038,7 @@ mod tests {
             r.rows_written as usize,
             None,
             Arc::new(props),
+            None,
         )
         .unwrap();
 
@@ -2053,7 +2065,7 @@ mod tests {
     fn test_disabled_statistics() {
         let mut buf = Vec::with_capacity(100);
         let mut write = TrackedWrite::new(&mut buf);
-        let page_writer = Box::new(SerializedPageWriter::new(&mut write));
+        let page_writer = Box::new(SerializedPageWriter::new(&mut write, None));
         let props = WriterProperties::builder()
             .set_statistics_enabled(EnabledStatistics::None)
             .set_writer_version(WriterVersion::PARQUET_2_0)
@@ -2079,6 +2091,7 @@ mod tests {
             r.rows_written as usize,
             None,
             Arc::new(props),
+            None,
         )
         .unwrap();
 
@@ -2189,7 +2202,7 @@ mod tests {
         // and no fallback occurred so far.
         let mut file = tempfile::tempfile().unwrap();
         let mut write = TrackedWrite::new(&mut file);
-        let page_writer = Box::new(SerializedPageWriter::new(&mut write));
+        let page_writer = Box::new(SerializedPageWriter::new(&mut write, None));
         let props = Arc::new(
             WriterProperties::builder()
                 .set_data_page_size_limit(10)
@@ -2214,6 +2227,7 @@ mod tests {
                 r.rows_written as usize,
                 None,
                 Arc::new(props),
+                None,
             )
             .unwrap(),
         );
@@ -2713,7 +2727,11 @@ mod tests {
     fn test_column_offset_index_metadata() {
         // write data
         // and check the offset index and column index
-        let page_writer = get_test_page_writer();
+        let page_writer = get_test_page_writer_with_ordinal_expectation(Some(VecDeque::from([
+            Some(0),
+            None,
+            Some(1),
+        ])));
         let props = Default::default();
         let mut writer = get_test_column_writer::<Int32Type>(page_writer, 0, 0, props);
         writer.write_batch(&[1, 2, 3, 4], None, None).unwrap();
@@ -3445,7 +3463,7 @@ mod tests {
     ) {
         let mut file = tempfile::tempfile().unwrap();
         let mut write = TrackedWrite::new(&mut file);
-        let page_writer = Box::new(SerializedPageWriter::new(&mut write));
+        let page_writer = Box::new(SerializedPageWriter::new(&mut write, None));
 
         let max_def_level = match def_levels {
             Some(buf) => *buf.iter().max().unwrap_or(&0i16),
@@ -3484,6 +3502,7 @@ mod tests {
                 result.rows_written as usize,
                 None,
                 Arc::new(props),
+                None,
             )
             .unwrap(),
         );
@@ -3603,20 +3622,90 @@ mod tests {
 
     /// Returns page writer that collects pages without serializing them.
     fn get_test_page_writer() -> Box<dyn PageWriter> {
-        Box::new(TestPageWriter {})
+        get_test_page_writer_with_ordinal_expectation(None)
     }
 
-    struct TestPageWriter {}
+    /// For unit test cases that explicitly flush data pages before closing, resulting in data pages
+    /// flushed before and after the dictionary page.
+    fn get_test_page_writer_with_ordinal_expectation(
+        expect_exact_ordinal_sequence: Option<VecDeque<Option<u16>>>,
+    ) -> Box<dyn PageWriter> {
+        Box::new(TestPageWriter {
+            simulate_encrypted: false,
+            last_page_ordinal: None,
+            page_ordinal_none_first: false,
+            expect_exact_ordinal_sequence,
+        })
+    }
+
+    struct TestPageWriter {
+        /// Always false, currently -- enabling would just affect return values that get fed into
+        /// test assertions.
+        simulate_encrypted: bool,
+        // Is initialized to None, is set to Some(aad_page_ordinal) once write_page is called.
+        last_page_ordinal: Option<Option<u16>>,
+        page_ordinal_none_first: bool,
+        expect_exact_ordinal_sequence: Option<VecDeque<Option<u16>>>,
+    }
 
     impl PageWriter for TestPageWriter {
-        fn write_page(&mut self, page: CompressedPage) -> Result<PageWriteSpec> {
+        fn write_page(
+            &mut self,
+            page: CompressedPage,
+            aad_page_ordinal: Option<u16>,
+        ) -> Result<PageWriteSpec> {
+            use crate::file::encryption::USUAL_ENCRYPTION_OVERHEAD;
+
+            if let Some(exact_sequence) = &mut self.expect_exact_ordinal_sequence {
+                assert_eq!(exact_sequence.pop_front(), Some(aad_page_ordinal));
+            } else {
+                // We're a bit loose in this assertion -- the caller could write or not write a
+                // dictionary page, and sometimes write it last and don't set up expectations in advance
+                // -- so here are the allowable sequences of aad_page_ordinal value:
+                //
+                //   - None, Some(0), ..., Some(N-1)
+                //   - Some(0), ..., Some(N-1), None
+                //   - Some(0), ..., Some(N-1)
+                match aad_page_ordinal {
+                    Some(0) => {
+                        // Allow preceding ordinal sequence to be [None], or [].
+                        if let Some(last_page_ordinal) = self.last_page_ordinal {
+                            assert_eq!(last_page_ordinal, None);
+                            assert!(self.page_ordinal_none_first);
+                        }
+                    }
+                    Some(n) => {
+                        // Allow preceding ordinal sequence to be [None, Some(0), ..., Some(n-1)], or [Some(0), ..., Some(n-1)].
+                        assert_eq!(self.last_page_ordinal, Some(Some(n - 1)));
+                    }
+                    None => {
+                        // Allow preceding ordinal sequence to be [], or [Some(0), ..., Some(n-1)].
+                        if let Some(last_page_ordinal) = self.last_page_ordinal {
+                            assert!(last_page_ordinal.is_some());
+                        } else {
+                            // It was [].
+                            self.page_ordinal_none_first = true;
+                        }
+                    }
+                }
+                self.last_page_ordinal = Some(aad_page_ordinal);
+            }
+
+            // Note, the normal PageWriteSpec result would include PageMetaData overhead, and these
+            // values are thus not perfectly faked, but the only thing that looks at them are test
+            // assertions.
+
             let mut res = PageWriteSpec::new();
             res.page_type = page.page_type();
             res.uncompressed_size = page.uncompressed_size();
-            res.compressed_size = page.compressed_size();
+            res.compressed_size = self.simulate_encrypted as usize * USUAL_ENCRYPTION_OVERHEAD
+                + page.compressed_unencrypted_size();
+
             res.num_values = page.num_values();
             res.offset = 0;
-            res.bytes_written = page.data().len() as u64;
+            res.bytes_written = (self.simulate_encrypted as usize * USUAL_ENCRYPTION_OVERHEAD
+                + page.data().len()) as u64;
+
             Ok(res)
         }
 

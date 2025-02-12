@@ -74,5 +74,8 @@ pub fn decode_metadata(buf: &[u8]) -> Result<ParquetMetaData> {
 /// ```
 #[deprecated(since = "53.1.0", note = "Use ParquetMetaDataReader::decode_footer")]
 pub fn decode_footer(slice: &[u8; FOOTER_SIZE]) -> Result<usize> {
-    ParquetMetaDataReader::decode_footer(slice)
+    let encryption_config = None;
+    let (metadata_size, _encrypted) =
+        ParquetMetaDataReader::decode_footer(slice, &encryption_config)?;
+    Ok(metadata_size)
 }

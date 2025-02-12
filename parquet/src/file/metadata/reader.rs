@@ -15,24 +15,40 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use std::io::Cursor;
 use std::{io::Read, ops::Range, sync::Arc};
 
 use bytes::Bytes;
+use thrift::protocol::TCompactInputProtocol;
 
 use crate::basic::ColumnOrder;
 use crate::errors::{ParquetError, Result};
 use crate::file::metadata::{FileMetaData, ParquetMetaData, RowGroupMetaData};
 use crate::file::page_index::index::Index;
-use crate::file::page_index::index_reader::{acc_range, decode_column_index, decode_offset_index};
+use crate::file::page_index::index_reader::{
+    acc_range, decode_possibly_encrypted_column_index, decode_possibly_encrypted_offset_index,
+};
 use crate::file::reader::ChunkReader;
+use crate::file::{
+    encryption::{
+        decrypt_module, ParquetEncryptionConfig, ParquetEncryptionKey, ParquetEncryptionMode,
+        RandomFileIdentifier, AAD_FILE_UNIQUE_SIZE, PARQUET_KEY_HASH_LENGTH,
+    },
+    PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE, PARQUET_MAGIC_UNSUPPORTED_PARE,
+};
 use crate::file::{FOOTER_SIZE, PARQUET_MAGIC};
-use crate::format::{ColumnOrder as TColumnOrder, FileMetaData as TFileMetaData};
+use crate::format::{
+    ColumnOrder as TColumnOrder, EncryptionAlgorithm, FileCryptoMetaData as TFileCryptoMetaData,
+    FileMetaData as TFileMetaData,
+};
 use crate::schema::types;
 use crate::schema::types::SchemaDescriptor;
 use crate::thrift::{TCompactSliceInputProtocol, TSerializable};
 
 #[cfg(feature = "async")]
 use crate::arrow::async_reader::MetadataFetch;
+
+use super::FileEncryptionInfo;
 
 /// Reads the [`ParquetMetaData`] from a byte stream.
 ///
@@ -68,6 +84,7 @@ pub struct ParquetMetaDataReader {
     // Size of the serialized thrift metadata plus the 8 byte footer. Only set if
     // `self.parse_metadata` is called.
     metadata_size: Option<usize>,
+    encryption_config: Option<ParquetEncryptionConfig>,
 }
 
 impl ParquetMetaDataReader {
@@ -81,6 +98,14 @@ impl ParquetMetaDataReader {
     pub fn new_with_metadata(metadata: ParquetMetaData) -> Self {
         Self {
             metadata: Some(metadata),
+            ..Default::default()
+        }
+    }
+
+    /// Create a new [`ParquetMetaDataReader`] populated with (or without) an encryption configuration.
+    pub fn new_with_encryption_config(encryption_config: Option<ParquetEncryptionConfig>) -> Self {
+        Self {
+            encryption_config,
             ..Default::default()
         }
     }
@@ -205,8 +230,10 @@ impl ParquetMetaDataReader {
     /// let metadata = reader.finish().unwrap();
     /// ```
     pub fn try_parse_sized<R: ChunkReader>(&mut self, reader: &R, file_size: usize) -> Result<()> {
-        self.metadata = match self.parse_metadata(reader) {
-            Ok(metadata) => Some(metadata),
+        match self.parse_metadata(reader) {
+            Ok(metadata) => {
+                self.metadata = Some(metadata);
+            }
             // FIXME: throughout this module ParquetError::IndexOutOfBound is used to indicate the
             // need for more data. This is not it's intended use. The plan is to add a NeedMoreData
             // value to the enum, but this would be a breaking change. This will be done as
@@ -226,7 +253,9 @@ impl ParquetMetaDataReader {
                     return Err(ParquetError::IndexOutOfBound(needed, file_size));
                 }
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                return Err(e);
+            }
         };
 
         // we can return if page indexes aren't requested
@@ -342,8 +371,13 @@ impl ParquetMetaDataReader {
         mut fetch: F,
         file_size: usize,
     ) -> Result<()> {
-        let (metadata, remainder) =
-            Self::load_metadata(&mut fetch, file_size, self.get_prefetch_size()).await?;
+        let (metadata, remainder) = Self::load_metadata(
+            &mut fetch,
+            file_size,
+            self.get_prefetch_size(),
+            &self.encryption_config,
+        )
+        .await?;
 
         self.metadata = Some(metadata);
 
@@ -407,11 +441,18 @@ impl ParquetMetaDataReader {
                 .map(|x| {
                     x.columns()
                         .iter()
-                        .map(|c| match c.column_index_range() {
-                            Some(r) => decode_column_index(
-                                &bytes[r.start - start_offset..r.end - start_offset],
-                                c.column_type(),
-                            ),
+                        .enumerate()
+                        .map(|(column_idx, c)| match c.column_index_range() {
+                            Some(r) => {
+                                let row_group_ordinal: Option<i16> = x.ordinal();
+                                decode_possibly_encrypted_column_index(
+                                    &bytes[r.start - start_offset..r.end - start_offset],
+                                    c.column_type(),
+                                    metadata.file_encryption_info(),
+                                    row_group_ordinal,
+                                    column_idx,
+                                )
+                            }
                             None => Ok(Index::NONE),
                         })
                         .collect::<Result<Vec<_>>>()
@@ -431,10 +472,17 @@ impl ParquetMetaDataReader {
                 .map(|x| {
                     x.columns()
                         .iter()
-                        .map(|c| match c.offset_index_range() {
-                            Some(r) => decode_offset_index(
-                                &bytes[r.start - start_offset..r.end - start_offset],
-                            ),
+                        .enumerate()
+                        .map(|(column_idx, c)| match c.offset_index_range() {
+                            Some(r) => {
+                                let row_group_ordinal: Option<i16> = x.ordinal();
+                                decode_possibly_encrypted_offset_index(
+                                    &bytes[r.start - start_offset..r.end - start_offset],
+                                    metadata.file_encryption_info(),
+                                    row_group_ordinal,
+                                    column_idx,
+                                )
+                            }
                             None => Err(general_err!("missing offset index")),
                         })
                         .collect::<Result<Vec<_>>>()
@@ -495,7 +543,8 @@ impl ParquetMetaDataReader {
             .get_read(file_size - 8)?
             .read_exact(&mut footer)?;
 
-        let metadata_len = Self::decode_footer(&footer)?;
+        let (metadata_len, footer_encrypted) =
+            Self::decode_footer(&footer, &self.encryption_config)?;
         let footer_metadata_len = FOOTER_SIZE + metadata_len;
         self.metadata_size = Some(footer_metadata_len);
 
@@ -507,7 +556,83 @@ impl ParquetMetaDataReader {
         }
 
         let start = file_size - footer_metadata_len as u64;
-        Self::decode_metadata(chunk_reader.get_bytes(start, metadata_len)?.as_ref())
+
+        let bytes = chunk_reader.get_bytes(start, metadata_len)?;
+
+        Self::decode_possibly_encrypted_metadata(
+            bytes.as_ref(),
+            footer_encrypted,
+            &self.encryption_config,
+        )
+    }
+
+    /// Decodes the metadata, and possibly FileCryptoMetaData, with encryption configuration.
+    /// `footer_encrypted` tells the function if the footer had an encryption magic value.
+    pub fn decode_possibly_encrypted_metadata(
+        buf: &[u8],
+        footer_encrypted: bool,
+        encryption_config: &Option<ParquetEncryptionConfig>,
+    ) -> Result<ParquetMetaData> {
+        if footer_encrypted {
+            let Some(encryption_config) = &encryption_config else {
+                return Err(general_err!(
+                    "Parquet file is encrypted but there is no encryption configuration"
+                ));
+            };
+
+            let mut metadata_read = Cursor::new(buf);
+            let file_crypto_metadata = {
+                let mut prot = TCompactInputProtocol::new(&mut metadata_read);
+                TFileCryptoMetaData::read_from_in_protocol(&mut prot).map_err(|e| {
+                    ParquetError::General(format!("Could not parse crypto metadata: {}", e))
+                })?
+            };
+
+            let encryption_key = select_key(encryption_config, &file_crypto_metadata.key_metadata)?;
+
+            let mut aad_file_unique: RandomFileIdentifier;
+            // TODO: What's to stop somebody from switching out aad_file_unique with their own value and then swapping components between files?
+            match file_crypto_metadata.encryption_algorithm {
+                EncryptionAlgorithm::AESGCMV1(gcmv1) => {
+                    if gcmv1.aad_prefix.is_some() || gcmv1.supply_aad_prefix.is_some() {
+                        return Err(general_err!(
+                            "Unsupported Parquet file. Use of aad_prefix is not expected"
+                        ));
+                    }
+                    if let Some(afu) = gcmv1.aad_file_unique {
+                        if afu.len() != AAD_FILE_UNIQUE_SIZE {
+                            return Err(general_err!("Unsupported Parquet file. aad_file_unique is not of the expected size"));
+                        }
+                        aad_file_unique = [0u8; AAD_FILE_UNIQUE_SIZE];
+                        aad_file_unique.copy_from_slice(&afu);
+                    } else {
+                        return Err(general_err!(
+                            "Unsupported Parquet file. aad_file_unique must be set"
+                        ));
+                    }
+                }
+                EncryptionAlgorithm::AESGCMCTRV1(_) => {
+                    return Err(general_err!(
+                        "Unsupported Parquet file. AES_GCM_CTR_V1 mode is not expected"
+                    ));
+                }
+            }
+
+            let no_aad = &[];
+            let plaintext_cursor: Cursor<Vec<u8>> =
+                decrypt_module("footer", metadata_read, &encryption_key, no_aad)?;
+
+            let mut decoded_metadata = Self::decode_metadata(
+                &plaintext_cursor.get_ref()[plaintext_cursor.position() as usize..],
+            )?;
+            decoded_metadata.metadata_encryption_info = Some(FileEncryptionInfo {
+                encryption_key,
+                random_file_identifier: aad_file_unique,
+            });
+            Ok(decoded_metadata)
+        } else {
+            Self::decode_metadata(buf)
+        }
     }
 
     /// Return the number of bytes to read in the initial pass. If `prefetch_size` has
@@ -528,6 +653,7 @@ impl ParquetMetaDataReader {
         fetch: &mut F,
         file_size: usize,
         prefetch: usize,
+        encryption_config: &Option<ParquetEncryptionConfig>,
     ) -> Result<(ParquetMetaData, Option<(usize, Bytes)>)> {
         if file_size < FOOTER_SIZE {
             return Err(eof_err!("file size of {} is less than footer", file_size));
@@ -552,7 +678,7 @@ impl ParquetMetaDataReader {
         let mut footer = [0; FOOTER_SIZE];
         footer.copy_from_slice(&suffix[suffix_len - FOOTER_SIZE..suffix_len]);
 
-        let length = Self::decode_footer(&footer)?;
+        let (length, footer_encrypted) = Self::decode_footer(&footer, encryption_config)?;
 
         if file_size < length + FOOTER_SIZE {
             return Err(eof_err!(
@@ -566,18 +692,30 @@ impl ParquetMetaDataReader {
         if length > suffix_len - FOOTER_SIZE {
             let metadata_start = file_size - length - FOOTER_SIZE;
             let meta = fetch.fetch(metadata_start..file_size - FOOTER_SIZE).await?;
-            Ok((Self::decode_metadata(&meta)?, None))
+            Ok((
+                Self::decode_possibly_encrypted_metadata(
+                    &meta,
+                    footer_encrypted,
+                    encryption_config,
+                )?,
+                None,
+            ))
         } else {
             let metadata_start = file_size - length - FOOTER_SIZE - footer_start;
             let slice = &suffix[metadata_start..suffix_len - FOOTER_SIZE];
             Ok((
-                Self::decode_metadata(slice)?,
+                Self::decode_possibly_encrypted_metadata(
+                    slice,
+                    footer_encrypted,
+                    encryption_config,
+                )?,
                 Some((footer_start, suffix.slice(..metadata_start))),
             ))
         }
     }
 
-    /// Decodes the Parquet footer returning the metadata length in bytes
+    /// Decodes the Parquet footer returning the metadata length in bytes, and true if the footer is
+    /// encrypted.
     ///
     /// A parquet footer is 8 bytes long and has the following layout:
     /// * 4 bytes for the metadata length
@@ -588,16 +726,48 @@ impl ParquetMetaDataReader {
     /// | len | 'PAR1' |
     /// +-----+--------+
     /// ```
-    pub fn decode_footer(slice: &[u8; FOOTER_SIZE]) -> Result<usize> {
+    pub fn decode_footer(
+        slice: &[u8; FOOTER_SIZE],
+        encryption_config: &Option<ParquetEncryptionConfig>,
+    ) -> Result<(usize, bool)> {
+        let trailing_magic: &[u8] = &slice[4..];
+
         // check this is indeed a parquet file
-        if slice[4..] != PARQUET_MAGIC {
+        let encrypted_footer: bool;
+        if trailing_magic == PARQUET_MAGIC {
+            if let Some(config) = encryption_config {
+                if !config
+                    .read_keys()
+                    .iter()
+                    .any(|m| matches!(m, ParquetEncryptionMode::Unencrypted))
+                {
+                    return Err(general_err!("Invalid Parquet file in encrypted mode.  File (or at least the Parquet footer) is not encrypted"));
+                }
+            }
+            encrypted_footer = false;
+        } else if trailing_magic == PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE {
+            let has_keys = encryption_config.as_ref().map_or(false, |config| {
+                config
+                    .read_keys()
+                    .iter()
+                    .any(|m| matches!(m, ParquetEncryptionMode::EncryptedFooter(_)))
+            });
+            if !has_keys {
+                return Err(general_err!(
+                    "Invalid Parquet file in unencrypted mode.  File is encrypted"
+                ));
+            }
+            encrypted_footer = true;
+        } else if trailing_magic == PARQUET_MAGIC_UNSUPPORTED_PARE {
+            return Err(general_err!("Unsupported Parquet file.  File is encrypted with the standard PARE encryption format"));
+        } else {
             return Err(general_err!("Invalid Parquet file. Corrupt footer"));
         }
 
         // get the metadata length from the footer
         let metadata_len = u32::from_le_bytes(slice[..4].try_into().unwrap());
         // u32 won't be larger than usize in most cases
-        Ok(metadata_len as usize)
+        Ok((metadata_len as usize, encrypted_footer))
     }
 
     /// Decodes [`ParquetMetaData`] from the provided bytes.
@@ -661,6 +831,39 @@ impl ParquetMetaDataReader {
             }
             None => None,
         }
+    }
+}
+
+fn select_key(
+    encryption_config: &ParquetEncryptionConfig,
+    key_metadata: &Option<Vec<u8>>,
+) -> Result<ParquetEncryptionKey> {
+    if let Some(key_id) = key_metadata {
+        if key_id.len() != PARQUET_KEY_HASH_LENGTH {
+            return Err(general_err!(
+                "Unsupported Parquet file.  key_metadata field length is not supported"
+            ));
+        }
+        let mut key_id_arr = [0u8; PARQUET_KEY_HASH_LENGTH];
+        key_id_arr.copy_from_slice(&key_id);
+        let read_keys: &[ParquetEncryptionMode] = encryption_config.read_keys();
+        for mode in read_keys {
+            match mode {
+                ParquetEncryptionMode::Unencrypted => {}
+                ParquetEncryptionMode::EncryptedFooter(key_info) => {
+                    if key_info.key.compute_key_hash() == key_id_arr {
+                        return Ok(key_info.key);
+                    }
+                }
+            }
+        }
+        return Err(general_err!(
+            "Parquet file is encrypted with an unknown or out-of-rotation key"
+        ));
+    } else {
+        return Err(general_err!(
+            "Unsupported Parquet file.  Expecting key_metadata field to be used"
+        ));
     }
 }
 

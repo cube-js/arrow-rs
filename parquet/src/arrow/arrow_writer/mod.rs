@@ -18,12 +18,12 @@
 //! Contains writer which writes arrow data into parquet data.
 
 use bytes::Bytes;
+use std::i16;
 use std::io::{Read, Write};
-use std::iter::Peekable;
+use std::iter::{Enumerate, Peekable};
 use std::slice::Iter;
 use std::sync::{Arc, Mutex};
 use std::vec::IntoIter;
-use thrift::protocol::TCompactOutputProtocol;
 
 use arrow_array::cast::AsArray;
 use arrow_array::types::*;
@@ -43,12 +43,18 @@ use crate::column::writer::{
 };
 use crate::data_type::{ByteArray, FixedLenByteArray};
 use crate::errors::{ParquetError, Result};
+use crate::file::encryption::{
+    encrypt_module, parquet_aad_suffix, try_into_encryption_params_with_rg_ordinal,
+    PrepaddedPlaintext, RowGroupColumnEncryptionParams, USUAL_ENCRYPTION_OVERHEAD,
+};
 use crate::file::metadata::{KeyValue, RowGroupMetaData};
 use crate::file::properties::{WriterProperties, WriterPropertiesPtr};
 use crate::file::reader::{ChunkReader, Length};
-use crate::file::writer::{SerializedFileWriter, SerializedRowGroupWriter};
+use crate::file::writer::{
+    compute_aad_module_types, SerializedFileWriter, SerializedRowGroupWriter,
+};
+use crate::format::PageHeader;
 use crate::schema::types::{ColumnDescPtr, SchemaDescriptor};
-use crate::thrift::TSerializable;
 use levels::{calculate_array_levels, ArrayLevels};
 
 mod byte_array;
@@ -260,13 +266,13 @@ impl<W: Write + Send> ArrowWriter<W> {
         if batch.num_rows() == 0 {
             return Ok(());
         }
-
         let in_progress = match &mut self.in_progress {
             Some(in_progress) => in_progress,
             x => x.insert(ArrowRowGroupWriter::new(
                 self.writer.schema_descr(),
                 self.writer.properties(),
                 &self.arrow_schema,
+                self.writer.row_group_index() as i16,
             )?),
         };
 
@@ -455,23 +461,89 @@ impl Read for ArrowColumnChunkReader {
 /// [`ArrowRowGroupWriter`] on flush, without requiring self-referential borrows
 type SharedColumnChunk = Arc<Mutex<ArrowColumnChunkData>>;
 
-#[derive(Default)]
 struct ArrowPageWriter {
     buffer: SharedColumnChunk,
+    encryption_params: Option<RowGroupColumnEncryptionParams>,
+}
+
+impl ArrowPageWriter {
+    fn new(encryption_params: Option<RowGroupColumnEncryptionParams>) -> ArrowPageWriter {
+        ArrowPageWriter {
+            buffer: SharedColumnChunk::default(),
+            encryption_params,
+        }
+    }
+}
+
+impl ArrowPageWriter {
+    #[inline]
+    fn serialize_page_header(
+        &self,
+        buf: &mut Vec<u8>,
+        header: PageHeader,
+        aad_header_module_type: u8,
+        page_ordinal: Option<u16>,
+    ) -> Result<()> {
+        crate::file::writer::serialize_page_header_helper(
+            buf,
+            header,
+            aad_header_module_type,
+            &self.encryption_params,
+            page_ordinal,
+        )
+    }
 }
 
 impl PageWriter for ArrowPageWriter {
-    fn write_page(&mut self, page: CompressedPage) -> Result<PageWriteSpec> {
+    fn write_page(
+        &mut self,
+        page: CompressedPage,
+        aad_page_ordinal: Option<u16>,
+    ) -> Result<PageWriteSpec> {
+        let is_encrypted = self.encryption_params.is_some();
         let mut buf = self.buffer.try_lock().unwrap();
-        let page_header = page.to_thrift_header();
+        let page_header = page.to_thrift_header(is_encrypted);
+        let (aad_module_type, aad_header_module_type) = compute_aad_module_types(&page);
         let header = {
             let mut header = Vec::with_capacity(1024);
-            let mut protocol = TCompactOutputProtocol::new(&mut header);
-            page_header.write_to_out_protocol(&mut protocol)?;
+            self.serialize_page_header(
+                &mut header,
+                page_header,
+                aad_header_module_type,
+                aad_page_ordinal,
+            )?;
             Bytes::from(header)
         };
 
-        let data = page.compressed_page().buffer().clone();
+        let data = if let Some(RowGroupColumnEncryptionParams {
+            encryption_info,
+            row_group_ordinal,
+            column_ordinal,
+        }) = &self.encryption_params
+        {
+            let (aad_len, aad_buf) = parquet_aad_suffix(
+                &encryption_info.random_file_identifier,
+                aad_module_type,
+                *row_group_ordinal,
+                *column_ordinal,
+                aad_page_ordinal,
+            );
+
+            let mut plaintext = PrepaddedPlaintext::new();
+            plaintext.buf_mut().extend_from_slice(page.data());
+            let mut ciphertext = Vec::with_capacity(page.data().len() + USUAL_ENCRYPTION_OVERHEAD);
+            encrypt_module(
+                "Page data",
+                &mut ciphertext,
+                &encryption_info.encryption_key,
+                plaintext,
+                &aad_buf[..aad_len],
+            )?;
+            Bytes::from(ciphertext)
+        } else {
+            page.compressed_page().buffer().clone()
+        };
+
         let compressed_size = data.len() + header.len();
 
         let mut spec = PageWriteSpec::new();
@@ -552,8 +624,13 @@ impl ArrowColumnChunk {
 /// let parquet_schema = arrow_to_parquet_schema(schema.as_ref()).unwrap();
 /// let props = Arc::new(WriterProperties::default());
 ///
+/// /// // Create parquet writer
+/// let root_schema = parquet_schema.root_schema_ptr();
+/// let mut out = Vec::with_capacity(1024); // This could be a File
+/// let mut writer = SerializedFileWriter::new(&mut out, root_schema, props.clone()).unwrap();
+///
 /// // Create writers for each of the leaf columns
-/// let col_writers = get_column_writers(&parquet_schema, &props, &schema).unwrap();
+/// let col_writers = get_column_writers(&parquet_schema, &props, &schema, Some(writer.row_group_index().try_into().unwrap())).unwrap();
 ///
 /// // Spawn a worker thread for each column
 /// // This is for demonstration purposes, a thread-pool e.g. rayon or tokio, would be better
@@ -570,11 +647,6 @@ impl ArrowColumnChunk {
 ///         (handle, send)
 ///     })
 ///     .collect();
-///
-/// // Create parquet writer
-/// let root_schema = parquet_schema.root_schema_ptr();
-/// let mut out = Vec::with_capacity(1024); // This could be a File
-/// let mut writer = SerializedFileWriter::new(&mut out, root_schema, props.clone()).unwrap();
 ///
 /// // Start row group
 /// let mut row_group = writer.next_row_group().unwrap();
@@ -689,8 +761,9 @@ impl ArrowRowGroupWriter {
         parquet: &SchemaDescriptor,
         props: &WriterPropertiesPtr,
         arrow: &SchemaRef,
+        row_group_ordinal: i16,
     ) -> Result<Self> {
-        let writers = get_column_writers(parquet, props, arrow)?;
+        let writers = get_column_writers(parquet, props, arrow, Some(row_group_ordinal))?;
         Ok(Self {
             writers,
             schema: arrow.clone(),
@@ -722,11 +795,29 @@ pub fn get_column_writers(
     parquet: &SchemaDescriptor,
     props: &WriterPropertiesPtr,
     arrow: &SchemaRef,
+    row_group_ordinal: Option<i16>,
 ) -> Result<Vec<ArrowColumnWriter>> {
+    // row group ordinal is only used for encryption, as we see in our callee, `get_arrow_column_writer`.
+    let row_group_ordinal: i16 = if let Some(rgo) = row_group_ordinal {
+        rgo
+    } else {
+        if props.encryption_info.is_some() {
+            return Err(general_err!(
+                "row group ordinal must be provided when encryption is enabled"
+            ));
+        }
+        0
+    };
     let mut writers = Vec::with_capacity(arrow.fields.len());
-    let mut leaves = parquet.columns().iter();
+    let mut leaves = parquet.columns().iter().enumerate();
     for field in &arrow.fields {
-        get_arrow_column_writer(field.data_type(), props, &mut leaves, &mut writers)?;
+        get_arrow_column_writer(
+            field.data_type(),
+            props,
+            row_group_ordinal,
+            &mut leaves,
+            &mut writers,
+        )?;
     }
     Ok(writers)
 }
@@ -735,66 +826,79 @@ pub fn get_column_writers(
 fn get_arrow_column_writer(
     data_type: &ArrowDataType,
     props: &WriterPropertiesPtr,
-    leaves: &mut Iter<'_, ColumnDescPtr>,
+    row_group_ordinal: i16,
+    leaves: &mut Enumerate<Iter<'_, ColumnDescPtr>>,
     out: &mut Vec<ArrowColumnWriter>,
 ) -> Result<()> {
-    let col = |desc: &ColumnDescPtr| {
-        let page_writer = Box::<ArrowPageWriter>::default();
-        let chunk = page_writer.buffer.clone();
-        let writer = get_column_writer(desc.clone(), props.clone(), page_writer);
-        ArrowColumnWriter {
-            chunk,
-            writer: ArrowColumnWriterImpl::Column(writer),
-        }
-    };
+    let col =
+        |(column_index, desc): (usize, &ColumnDescPtr)| -> Result<ArrowColumnWriter, ParquetError> {
+            let encryption_params = try_into_encryption_params_with_rg_ordinal(
+                &props.encryption_info,
+                row_group_ordinal,
+                column_index,
+            )?;
+            let page_writer = Box::<ArrowPageWriter>::new(ArrowPageWriter::new(encryption_params));
+            let chunk = page_writer.buffer.clone();
+            let writer = get_column_writer(desc.clone(), props.clone(), page_writer);
+            Ok(ArrowColumnWriter {
+                chunk,
+                writer: ArrowColumnWriterImpl::Column(writer),
+            })
+        };
 
-    let bytes = |desc: &ColumnDescPtr| {
-        let page_writer = Box::<ArrowPageWriter>::default();
-        let chunk = page_writer.buffer.clone();
-        let writer = GenericColumnWriter::new(desc.clone(), props.clone(), page_writer);
-        ArrowColumnWriter {
-            chunk,
-            writer: ArrowColumnWriterImpl::ByteArray(writer),
-        }
-    };
+    let bytes =
+        |(column_index, desc): (usize, &ColumnDescPtr)| -> Result<ArrowColumnWriter, ParquetError> {
+            let encryption_params = try_into_encryption_params_with_rg_ordinal(
+                &props.encryption_info,
+                row_group_ordinal,
+                column_index,
+            )?;
+            let page_writer = Box::<ArrowPageWriter>::new(ArrowPageWriter::new(encryption_params));
+            let chunk = page_writer.buffer.clone();
+            let writer = GenericColumnWriter::new(desc.clone(), props.clone(), page_writer);
+            Ok(ArrowColumnWriter {
+                chunk,
+                writer: ArrowColumnWriterImpl::ByteArray(writer),
+            })
+        };
 
     match data_type {
-        _ if data_type.is_primitive() => out.push(col(leaves.next().unwrap())),
-        ArrowDataType::FixedSizeBinary(_) | ArrowDataType::Boolean | ArrowDataType::Null => out.push(col(leaves.next().unwrap())),
+        _ if data_type.is_primitive() => out.push(col(leaves.next().unwrap())?),
+        ArrowDataType::FixedSizeBinary(_) | ArrowDataType::Boolean | ArrowDataType::Null => out.push(col(leaves.next().unwrap())?),
         ArrowDataType::LargeBinary
         | ArrowDataType::Binary
         | ArrowDataType::Utf8
         | ArrowDataType::LargeUtf8
         | ArrowDataType::BinaryView
         | ArrowDataType::Utf8View => {
-            out.push(bytes(leaves.next().unwrap()))
+            out.push(bytes(leaves.next().unwrap())?)
         }
         ArrowDataType::List(f)
         | ArrowDataType::LargeList(f)
         | ArrowDataType::FixedSizeList(f, _) => {
-            get_arrow_column_writer(f.data_type(), props, leaves, out)?
+            get_arrow_column_writer(f.data_type(), props, row_group_ordinal, leaves, out)?
         }
         ArrowDataType::Struct(fields) => {
             for field in fields {
-                get_arrow_column_writer(field.data_type(), props, leaves, out)?
+                get_arrow_column_writer(field.data_type(), props, row_group_ordinal, leaves, out)?
             }
         }
         ArrowDataType::Map(f, _) => match f.data_type() {
             ArrowDataType::Struct(f) => {
-                get_arrow_column_writer(f[0].data_type(), props, leaves, out)?;
-                get_arrow_column_writer(f[1].data_type(), props, leaves, out)?
+                get_arrow_column_writer(f[0].data_type(), props, row_group_ordinal, leaves, out)?;
+                get_arrow_column_writer(f[1].data_type(), props, row_group_ordinal, leaves, out)?
             }
             _ => unreachable!("invalid map type"),
         }
         ArrowDataType::Dictionary(_, value_type) => match value_type.as_ref() {
             ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 | ArrowDataType::Binary | ArrowDataType::LargeBinary => {
-                out.push(bytes(leaves.next().unwrap()))
+                out.push(bytes(leaves.next().unwrap())?)
             }
             ArrowDataType::Utf8View | ArrowDataType::BinaryView => {
-                out.push(bytes(leaves.next().unwrap()))
+                out.push(bytes(leaves.next().unwrap())?)
             }
             _ => {
-                out.push(col(leaves.next().unwrap()))
+                out.push(col(leaves.next().unwrap())?)
             }
         }
        _ => return Err(ParquetError::NYI(

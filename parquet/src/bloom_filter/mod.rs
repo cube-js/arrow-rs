@@ -74,8 +74,15 @@
 
 use crate::data_type::AsBytes;
 use crate::errors::ParquetError;
-use crate::file::metadata::ColumnChunkMetaData;
+use crate::file::encryption::{
+    decrypt_module, encrypt_module, parquet_aad_suffix_no_page, try_into_column_ordinal,
+    PrepaddedPlaintext, RowGroupColumnEncryptionParams, USUAL_ENCRYPTION_OVERHEAD,
+};
+use crate::file::metadata::{ColumnChunkMetaData, FileEncryptionInfo};
 use crate::file::reader::ChunkReader;
+use crate::file::serialized_reader::{
+    BLOOM_FILTER_BITSET_MODULE_TYPE, BLOOM_FILTER_HEADER_MODULE_TYPE,
+};
 use crate::format::{
     BloomFilterAlgorithm, BloomFilterCompression, BloomFilterHash, BloomFilterHeader,
     SplitBlockAlgorithm, Uncompressed, XxHash,
@@ -195,8 +202,9 @@ pub(crate) const SBBF_HEADER_SIZE_ESTIMATE: usize = 20;
 pub(crate) fn chunk_read_bloom_filter_header_and_offset(
     offset: u64,
     buffer: Bytes,
+    encryption_params: &Option<RowGroupColumnEncryptionParams>,
 ) -> Result<(BloomFilterHeader, u64), ParquetError> {
-    let (header, length) = read_bloom_filter_header_and_length(buffer)?;
+    let (header, length) = read_bloom_filter_header_and_length(buffer, encryption_params)?;
     Ok((header, offset + length))
 }
 
@@ -205,12 +213,41 @@ pub(crate) fn chunk_read_bloom_filter_header_and_offset(
 #[inline]
 pub(crate) fn read_bloom_filter_header_and_length(
     buffer: Bytes,
+    encryption_params: &Option<RowGroupColumnEncryptionParams>,
 ) -> Result<(BloomFilterHeader, u64), ParquetError> {
-    let total_length = buffer.len();
-    let mut prot = TCompactSliceInputProtocol::new(buffer.as_ref());
-    let header = BloomFilterHeader::read_from_in_protocol(&mut prot)
-        .map_err(|e| ParquetError::General(format!("Could not read bloom filter header: {e}")))?;
-    Ok((header, (total_length - prot.as_slice().len()) as u64))
+    if let Some(ep) = encryption_params {
+        let aad_suffix = parquet_aad_suffix_no_page(
+            &ep.encryption_info.random_file_identifier,
+            BLOOM_FILTER_HEADER_MODULE_TYPE,
+            ep.row_group_ordinal,
+            ep.column_ordinal,
+        );
+
+        let mut buf = buffer.as_ref();
+
+        let plaintext_cursor = decrypt_module(
+            "bloom filter header",
+            &mut buf,
+            &ep.encryption_info.encryption_key,
+            &aad_suffix,
+        )?;
+
+        let mut prot = TCompactSliceInputProtocol::new(
+            &plaintext_cursor.get_ref()[plaintext_cursor.position() as usize..],
+        );
+        let header = BloomFilterHeader::read_from_in_protocol(&mut prot).map_err(|e| {
+            ParquetError::General(format!("Could not read bloom filter header: {e}"))
+        })?;
+
+        Ok((header, (buffer.len() - buf.len()) as u64))
+    } else {
+        let total_length = buffer.len();
+        let mut prot = TCompactSliceInputProtocol::new(buffer.as_ref());
+        let header = BloomFilterHeader::read_from_in_protocol(&mut prot).map_err(|e| {
+            ParquetError::General(format!("Could not read bloom filter header: {e}"))
+        })?;
+        Ok((header, (total_length - prot.as_slice().len()) as u64))
+    }
 }
 
 pub(crate) const BITSET_MIN_LENGTH: usize = 32;
@@ -271,7 +308,66 @@ impl Sbbf {
     /// Write the bloom filter data (header and then bitset) to the output. This doesn't
     /// flush the writer in order to boost performance of bulk writing all blocks. Caller
     /// must remember to flush the writer.
-    pub(crate) fn write<W: Write>(&self, mut writer: W) -> Result<(), ParquetError> {
+    pub(crate) fn write<W: Write>(
+        &self,
+        mut writer: W,
+        encryption_info: &Option<FileEncryptionInfo>,
+        row_group_ordinal: i16,
+        column_ordinal: usize,
+    ) -> Result<(), ParquetError> {
+        if let Some(ei) = encryption_info {
+            let column_ordinal: u16 = try_into_column_ordinal(column_ordinal)?;
+            // 1. Write the header
+            {
+                let aad_suffix = parquet_aad_suffix_no_page(
+                    &ei.random_file_identifier,
+                    BLOOM_FILTER_HEADER_MODULE_TYPE,
+                    row_group_ordinal,
+                    column_ordinal,
+                );
+
+                let mut plaintext = PrepaddedPlaintext::new();
+                {
+                    let mut protocol = TCompactOutputProtocol::new(plaintext.buf_mut());
+                    let header = self.header();
+                    header.write_to_out_protocol(&mut protocol).map_err(|e| {
+                        ParquetError::General(format!("Could not write bloom filter header: {e}"))
+                    })?;
+                    protocol.flush()?;
+                }
+
+                encrypt_module(
+                    "bloom filter header",
+                    &mut writer,
+                    &ei.encryption_key,
+                    plaintext,
+                    &aad_suffix,
+                )?;
+            }
+
+            // 2. Write the bitset
+            {
+                let aad_suffix = parquet_aad_suffix_no_page(
+                    &ei.random_file_identifier,
+                    BLOOM_FILTER_BITSET_MODULE_TYPE,
+                    row_group_ordinal,
+                    column_ordinal,
+                );
+
+                let mut plaintext = PrepaddedPlaintext::new();
+                self.write_bitset(plaintext.buf_mut())?;
+                encrypt_module(
+                    "bloom filter bitset",
+                    &mut writer,
+                    &ei.encryption_key,
+                    plaintext,
+                    &aad_suffix,
+                )?;
+            }
+
+            return Ok(());
+        }
+
         let mut protocol = TCompactOutputProtocol::new(&mut writer);
         let header = self.header();
         header.write_to_out_protocol(&mut protocol).map_err(|e| {
@@ -309,6 +405,7 @@ impl Sbbf {
     pub(crate) fn read_from_column_chunk<R: ChunkReader>(
         column_metadata: &ColumnChunkMetaData,
         reader: Arc<R>,
+        encryption_params: &Option<RowGroupColumnEncryptionParams>,
     ) -> Result<Option<Self>, ParquetError> {
         let offset: u64 = if let Some(offset) = column_metadata.bloom_filter_offset() {
             offset
@@ -320,11 +417,19 @@ impl Sbbf {
 
         let buffer = match column_metadata.bloom_filter_length() {
             Some(length) => reader.get_bytes(offset, length as usize),
-            None => reader.get_bytes(offset, SBBF_HEADER_SIZE_ESTIMATE),
+            None => reader.get_bytes(
+                offset,
+                SBBF_HEADER_SIZE_ESTIMATE
+                    + (if encryption_params.is_some() {
+                        USUAL_ENCRYPTION_OVERHEAD
+                    } else {
+                        0
+                    }),
+            ),
         }?;
 
         let (header, bitset_offset) =
-            chunk_read_bloom_filter_header_and_offset(offset, buffer.clone())?;
+            chunk_read_bloom_filter_header_and_offset(offset, buffer.clone(), encryption_params)?;
 
         match header.algorithm {
             BloomFilterAlgorithm::BLOCK(_) => {
@@ -342,7 +447,7 @@ impl Sbbf {
             }
         }
 
-        let bitset = match column_metadata.bloom_filter_length() {
+        let bitset_buf = match column_metadata.bloom_filter_length() {
             Some(_) => buffer.slice((bitset_offset - offset) as usize..),
             None => {
                 let bitset_length: usize = header.num_bytes.try_into().map_err(|_| {
@@ -352,7 +457,40 @@ impl Sbbf {
             }
         };
 
+        let bitset = Self::decrypt_bloom_filter_bitset_if_necessary(bitset_buf, encryption_params)?;
+
         Ok(Some(Self::new(&bitset)))
+    }
+
+    /// Performs decryption if encryption_info indicates the bitset_buf is encrypted.
+    pub fn decrypt_bloom_filter_bitset_if_necessary(
+        bitset_buf: Bytes,
+        encryption_params: &Option<RowGroupColumnEncryptionParams>,
+    ) -> Result<Bytes, ParquetError> {
+        let bitset = if let Some(ep) = encryption_params {
+            let aad_suffix = parquet_aad_suffix_no_page(
+                &ep.encryption_info.random_file_identifier,
+                BLOOM_FILTER_BITSET_MODULE_TYPE,
+                ep.row_group_ordinal,
+                ep.column_ordinal,
+            );
+
+            let mut slice = bitset_buf.as_ref();
+
+            let cursor = decrypt_module(
+                "bloom filter bitset",
+                &mut slice,
+                &ep.encryption_info.encryption_key,
+                &aad_suffix,
+            )?;
+
+            let cursor_pos: u64 = cursor.position();
+            let buf = Bytes::from(cursor.into_inner());
+            buf.slice(cursor_pos as usize..)
+        } else {
+            bitset_buf
+        };
+        Ok(bitset)
     }
 
     #[inline]
@@ -465,7 +603,7 @@ mod tests {
                 num_bytes,
             },
             read_length,
-        ) = read_bloom_filter_header_and_length(Bytes::copy_from_slice(buffer)).unwrap();
+        ) = read_bloom_filter_header_and_length(Bytes::copy_from_slice(buffer), &None).unwrap();
         assert_eq!(read_length, 15);
         assert_eq!(
             algorithm,
