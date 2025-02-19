@@ -536,6 +536,7 @@ impl<'a> PrimitiveTypeBuilder<'a> {
             }
             // Cube: Decimal96 support
             PhysicalType::INT96 => {
+                // Int96 Decimal types' precision in the Cube fork was limited to 27.
                 if self.precision > 27 {
                     return Err(general_err!(
                         "Cannot represent INT96 as DECIMAL with precision {}",
@@ -1409,7 +1410,7 @@ mod tests {
         if let Err(e) = result {
             assert_eq!(
                 format!("{e}"),
-                "Parquet error: DECIMAL can only annotate INT32, INT64, BYTE_ARRAY and FIXED_LEN_BYTE_ARRAY"
+                "Parquet error: Invalid DECIMAL precision: -1"
             );
         }
 
@@ -1517,6 +1518,29 @@ mod tests {
             assert_eq!(
                 format!("{e}"),
                 "Parquet error: Cannot represent INT64 as DECIMAL with precision 32"
+            );
+        }
+
+        result = Type::primitive_type_builder("foo", PhysicalType::INT96)
+            .with_repetition(Repetition::REQUIRED)
+            .with_converted_type(ConvertedType::DECIMAL)
+            .with_precision(27)
+            .with_scale(2)
+            .build();
+        assert!(result.is_ok());
+
+        // The Cube fork that wrote Int96's used 27 as the max precision.
+        result = Type::primitive_type_builder("foo", PhysicalType::INT96)
+            .with_repetition(Repetition::REQUIRED)
+            .with_converted_type(ConvertedType::DECIMAL)
+            .with_precision(28)
+            .with_scale(2)
+            .build();
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert_eq!(
+                format!("{e}"),
+                "Parquet error: Cannot represent INT96 as DECIMAL with precision 28"
             );
         }
 
