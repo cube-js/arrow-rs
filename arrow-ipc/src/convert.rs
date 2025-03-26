@@ -467,8 +467,8 @@ pub(crate) fn get_data_type(field: crate::Field, may_be_dictionary: bool) -> Dat
                     fsb.precision().try_into().unwrap(),
                     fsb.scale().try_into().unwrap(),
                 )
-            } else if bit_width == 96 {
-                // Cube: Decimal96 case
+            } else if bit_width == 96 || bit_width == 64 {
+                // Cube: Decimal96 or Decimal64 case
                 DataType::Decimal128(
                     fsb.precision().try_into().unwrap(),
                     fsb.scale().try_into().unwrap(),
