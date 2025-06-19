@@ -217,6 +217,9 @@ pub struct RowGroupMetaData {
     num_rows: i64,
     total_byte_size: i64,
     schema_descr: SchemaDescPtr,
+    /// Cube: We'll roundtrip file_offset from thrift, but we always originate it as None.  It was
+    /// not present in the older Parquet RowGroupMetaData definition.
+    file_offset: Option<i64>,
     /// Ordinal position of this row group in file
     ordinal: Option<i16>,
 }
@@ -280,22 +283,11 @@ impl RowGroupMetaData {
             let cc = ColumnChunkMetaData::from_thrift(d.clone(), c)?;
             columns.push(cc);
         }
-        // Notably, the function to_thrift, below, doesn't write these fields, and RowGroupMetadata doesn't have them.
-        if rg.file_offset.is_some() {
-            return Err(ParquetError::NYI(
-                "Parsing RowGroup file_offset fields is not yet implemented".to_string(),
-            ));
-        }
-        if rg.total_compressed_size.is_some() {
-            return Err(ParquetError::NYI(
-                "Parsing RowGroup total_compressed_size fields is not yet implemented"
-                    .to_string(),
-            ));
-        }
         Ok(RowGroupMetaData {
             columns,
             num_rows,
             total_byte_size,
+            file_offset: rg.file_offset,
             schema_descr,
             ordinal: rg.ordinal,
         })
@@ -303,14 +295,13 @@ impl RowGroupMetaData {
 
     /// Method to convert to Thrift.
     pub fn to_thrift(&self) -> RowGroup {
-        // TODO: Understand file_offset and total_compressed_size fields.
         RowGroup {
             columns: self.columns().iter().map(|v| v.to_thrift()).collect(),
             total_byte_size: self.total_byte_size,
             num_rows: self.num_rows,
             sorting_columns: None,
-            file_offset: None,
-            total_compressed_size: None,
+            file_offset: self.file_offset,
+            total_compressed_size: Some(self.compressed_size()),
             ordinal: self.ordinal,
         }
     }
@@ -375,6 +366,8 @@ impl RowGroupMetaDataBuilder {
             columns: self.columns,
             num_rows: self.num_rows,
             total_byte_size: self.total_byte_size,
+            // Cube: Here is where we originate the None value for the optionally supplied value file_offset field.
+            file_offset: None,
             schema_descr: self.schema_descr,
             ordinal: self.ordinal,
         })
