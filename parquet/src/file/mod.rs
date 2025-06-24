@@ -111,7 +111,8 @@ pub mod writer;
 /// The length of the parquet footer in bytes
 pub const FOOTER_SIZE: usize = 8;
 const PARQUET_MAGIC: [u8; 4] = [b'P', b'A', b'R', b'1'];
-/// Parquet uses PARE for encrypted footer mode, not PARC -- once we take care to check that we obey
-/// the Parquet encryption spec in exact detail, this can be PARE.
-const PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE: [u8; 4] = [b'P', b'A', b'R', b'C'];
-const PARQUET_MAGIC_UNSUPPORTED_PARE: [u8; 4] = [b'P', b'A', b'R', b'E'];
+/// Cube: We briefly used PARC out of concern our files' adherence to the spec was inaccurate.  Now
+/// we are writing PARE for compatibility with other tooling (such as parquet inspection tooling,
+/// etc.).
+const PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE_READONLY: [u8; 4] = [b'P', b'A', b'R', b'C'];
+const PARQUET_MAGIC_ENCRYPTED_FOOTER: [u8; 4] = [b'P', b'A', b'R', b'E'];

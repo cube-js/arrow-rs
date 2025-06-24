@@ -910,7 +910,7 @@ mod tests {
         reader::{FileReader, Length, SerializedFileReader, SerializedPageReader},
         statistics::{from_thrift, to_thrift, Statistics},
     };
-    use crate::file::{PARQUET_MAGIC, PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE};
+    use crate::file::{PARQUET_MAGIC, PARQUET_MAGIC_ENCRYPTED_FOOTER};
     use crate::format::SortingColumn;
     use crate::record::{Row, RowAccessor};
     use crate::schema::parser::parse_message_type;
@@ -1735,7 +1735,7 @@ mod tests {
             &data,
             &Some(ParquetEncryptionKey::generate_key()),
         );
-        assert_magic(&mut file, PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE);
+        assert_magic(&mut file, PARQUET_MAGIC_ENCRYPTED_FOOTER);
         (metadata1, metadata2)
     }
 

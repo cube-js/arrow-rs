@@ -29,7 +29,7 @@ use sha3::{Digest, Sha3_224};
 
 use crate::errors::{ParquetError, Result};
 
-use crate::file::{PARQUET_MAGIC, PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE};
+use crate::file::{PARQUET_MAGIC, PARQUET_MAGIC_ENCRYPTED_FOOTER};
 
 use super::metadata::FileEncryptionInfo;
 
@@ -168,14 +168,14 @@ pub struct RowGroupColumnEncryptionParams {
     pub column_ordinal: u16,
 }
 
-/// Returns the magic to use at the beginning and end of the file (depending on whether we use footer encryption)
+/// Returns the magic to write at the beginning and end of the file (depending on whether we use
+/// footer encryption)
 pub fn parquet_magic(is_footer_encrypted: bool) -> [u8; 4] {
-    // For now ParquetEncryptionKey only allows footer encryption mode.  And we use a custom "PARC"
-    // magic until we have checked that we're exactly following the format spec defined with "PARE".
+    // For now ParquetEncryptionKey only allows footer encryption mode.
     if !is_footer_encrypted {
         PARQUET_MAGIC
     } else {
-        PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE
+        PARQUET_MAGIC_ENCRYPTED_FOOTER
     }
 }
 

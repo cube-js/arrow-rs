@@ -34,7 +34,7 @@ use crate::file::{
         decrypt_module, ParquetEncryptionConfig, ParquetEncryptionKey, ParquetEncryptionMode,
         RandomFileIdentifier, AAD_FILE_UNIQUE_SIZE, PARQUET_KEY_HASH_LENGTH,
     },
-    PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE, PARQUET_MAGIC_UNSUPPORTED_PARE,
+    PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE_READONLY, PARQUET_MAGIC_ENCRYPTED_FOOTER,
 };
 use crate::file::{FOOTER_SIZE, PARQUET_MAGIC};
 use crate::format::{
@@ -755,7 +755,7 @@ impl ParquetMetaDataReader {
                 }
             }
             encrypted_footer = false;
-        } else if trailing_magic == PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE {
+        } else if trailing_magic == PARQUET_MAGIC_ENCRYPTED_FOOTER || trailing_magic == PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE_READONLY {
             let has_keys = encryption_config.as_ref().map_or(false, |config| {
                 config
                     .read_keys()
@@ -768,8 +768,6 @@ impl ParquetMetaDataReader {
                 ));
             }
             encrypted_footer = true;
-        } else if trailing_magic == PARQUET_MAGIC_UNSUPPORTED_PARE {
-            return Err(general_err!("Unsupported Parquet file.  File is encrypted with the standard PARE encryption format"));
         } else {
             return Err(general_err!("Invalid Parquet file. Corrupt footer"));
         }
