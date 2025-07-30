@@ -62,6 +62,8 @@ pub struct ArrowReaderBuilder<T> {
 
     pub(crate) batch_size: usize,
 
+    pub(crate) split_row_group_reads: bool,
+
     pub(crate) row_groups: Option<Vec<usize>>,
 
     pub(crate) projection: ProjectionMask,
@@ -83,6 +85,7 @@ impl<T> ArrowReaderBuilder<T> {
             schema: metadata.schema,
             fields: metadata.fields,
             batch_size: 1024,
+            split_row_group_reads: false,
             row_groups: None,
             projection: ProjectionMask::all(),
             filter: None,
@@ -113,6 +116,12 @@ impl<T> ArrowReaderBuilder<T> {
         // Try to avoid allocate large buffer
         let batch_size = batch_size.min(self.metadata.file_metadata().num_rows() as usize);
         Self { batch_size, ..self }
+    }
+
+    /// Enables splitting of row group I/O into multiple reads, with the goal of loading less data
+    /// into memory at a time.
+    pub fn with_split_row_group_reads(self, split_row_group_reads: bool) -> Self {
+        Self { split_row_group_reads, ..self }
     }
 
     /// Only read data from the provided row group indexes

@@ -545,7 +545,9 @@ impl<T: AsyncFileReader + Send + 'static> ParquetRecordBatchStreamBuilder<T> {
         Ok(ParquetRecordBatchStream {
             metadata: self.metadata,
             batch_size,
+            split_row_group_reads: self.split_row_group_reads,
             row_groups,
+            active_row_group_and_selection: None,
             projection: self.projection,
             selection: self.selection,
             schema,
@@ -706,6 +708,9 @@ impl<T> std::fmt::Debug for StreamState<T> {
 ///
 /// # I/O Buffering
 ///
+/// If `split_row_group_reads` is true then we perform multiple reads per batch in an attempt to
+/// save memory.  Otherwise, the following holds:
+///
 /// `ParquetRecordBatchStream` buffers *all* data pages selected after predicates
 /// (projection + filtering, etc) and decodes the rows from those buffered pages.
 ///
@@ -723,9 +728,13 @@ pub struct ParquetRecordBatchStream<T> {
 
     row_groups: VecDeque<usize>,
 
+    active_row_group_and_selection: Option<(usize, RowSelection)>,
+
     projection: ProjectionMask,
 
     batch_size: usize,
+
+    split_row_group_reads: bool,
 
     selection: Option<RowSelection>,
 
@@ -841,16 +850,45 @@ where
                     None => self.state = StreamState::Init,
                 },
                 StreamState::Init => {
-                    let row_group_idx = match self.row_groups.pop_front() {
-                        Some(idx) => idx,
-                        None => return Poll::Ready(None),
-                    };
+                    let reader: ReaderFactory<T>;
 
-                    let reader = self.reader.take().expect("lost reader");
+                    let selection: Option<RowSelection>;
+                    let row_group_idx: usize;
 
-                    let row_count = self.metadata.row_group(row_group_idx).num_rows() as usize;
+                    if let Some((active_row_group_idx, remaining_selection)) = self.active_row_group_and_selection.take() {
+                        if !remaining_selection.selects_any() {
+                            continue;
+                        } else {
+                            reader = self.reader.take().expect("lost reader");
 
-                    let selection = self.selection.as_mut().map(|s| s.split_off(row_count));
+                            let new_remaining_selection = remaining_selection.clone().offset(self.batch_size);
+                            selection = Some(remaining_selection.limit(self.batch_size));
+                            row_group_idx = active_row_group_idx;
+
+                            self.active_row_group_and_selection = Some((active_row_group_idx, new_remaining_selection));
+                        }
+                    } else {
+                        row_group_idx = match self.row_groups.pop_front() {
+                            Some(idx) => idx,
+                            None => return Poll::Ready(None),
+                        };
+
+                        reader = self.reader.take().expect("lost reader");
+
+                        let row_count = self.metadata.row_group(row_group_idx).num_rows() as usize;
+
+                        if self.split_row_group_reads {
+                            let remaining_selection = self.selection.as_mut().map_or_else(|| RowSelection::from_consecutive_ranges([0..row_count].into_iter(), row_count), |s| s.split_off(row_count));
+
+                            let new_remaining_selection = remaining_selection.clone().offset(self.batch_size);
+                            selection = Some(remaining_selection.limit(self.batch_size));
+
+                            self.active_row_group_and_selection = Some((row_group_idx, new_remaining_selection));
+                        } else {
+                            selection = self.selection.as_mut().map(|s| s.split_off(row_count));
+                        }
+                    }
+
 
                     let fut = reader
                         .read_row_group(
