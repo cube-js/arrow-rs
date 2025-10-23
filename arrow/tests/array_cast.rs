@@ -36,7 +36,7 @@ use arrow_array::{
 };
 use arrow_buffer::{Buffer, IntervalDayTime, IntervalMonthDayNano, i256};
 use arrow_cast::pretty::pretty_format_columns;
-use arrow_cast::{can_cast_types, cast};
+use arrow_cast::{CastOptions, can_cast_types, cast, cast_with_options};
 use arrow_data::ArrayData;
 use arrow_schema::{
     ArrowError, DataType, Field, Fields, IntervalUnit, TimeUnit, UnionFields, UnionMode,
@@ -158,7 +158,7 @@ fn test_can_cast_types() {
     for array in get_arrays_of_all_types() {
         for to_type in &all_types {
             println!("Test casting {:?} --> {:?}", array.data_type(), to_type);
-            let cast_result = cast(&array, to_type);
+            let cast_result = cast_with_options(&array, to_type, &CastOptions::default());
             let reported_cast_ability = can_cast_types(array.data_type(), to_type);
 
             // check for mismatch

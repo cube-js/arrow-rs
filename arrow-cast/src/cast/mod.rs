@@ -229,6 +229,9 @@ where
 }
 
 /// CastOptions provides a way to override the default cast behaviors
+///
+/// Note that [`CastOptions::default()`] returns NULL on cast failures, while
+/// [`cast()`] uses [`CUBESQL_CAST_OPTIONS`], which returns an error instead.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CastOptions<'a> {
     /// how to handle cast failures, either return NULL (safe=true) or return ERR (safe=false)
@@ -245,6 +248,13 @@ impl Default for CastOptions<'_> {
         }
     }
 }
+
+/// The [`CastOptions`] used by [`cast()`]: cast failures return an error
+/// instead of NULL (`safe: false`), with default formatting options.
+pub const CUBESQL_CAST_OPTIONS: CastOptions<'static> = CastOptions {
+    safe: false,
+    format_options: FormatOptions::new(),
+};
 
 /// Return true if a value of type `from_type` can be cast into a value of `to_type`.
 ///
@@ -474,9 +484,13 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
 
 /// Cast `array` to the provided data type and return a new Array with type `to_type`, if possible.
 ///
+/// Uses [`CUBESQL_CAST_OPTIONS`], so a value that cannot be cast returns an error
+/// instead of NULL. Use [`cast_with_options`] with [`CastOptions::default()`] to
+/// get NULL on failure.
+///
 /// See [`cast_with_options`] for more information
 pub fn cast(array: &dyn Array, to_type: &DataType) -> Result<ArrayRef, ArrowError> {
-    cast_with_options(array, to_type, &CastOptions::default())
+    cast_with_options(array, to_type, &CUBESQL_CAST_OPTIONS)
 }
 
 /// Convert an integer to a decimal native value without wrapping.
@@ -639,7 +653,10 @@ fn cast_reinterpret_arrays<I: ArrowPrimitiveType, O: ArrowPrimitiveType<Native =
 ///
 /// Returns a new Array with type `to_type` if possible.
 ///
-/// Accepts [`CastOptions`] to specify cast behavior. See also [`cast()`].
+/// Accepts [`CastOptions`] to specify cast behavior. See also [`cast()`], which uses
+/// [`CUBESQL_CAST_OPTIONS`] (`safe: false`). Where the behavior below mentions null,
+/// that applies when `safe` is true (as with [`CastOptions::default()`]); with `safe`
+/// false an error is returned instead.
 ///
 /// # Behavior
 /// * `Boolean` to `Utf8`, `LargeUtf8`, or `Utf8View`: `true` => `"true"`, `false` => `"false"`
@@ -2346,7 +2363,9 @@ mod tests {
             // assert cast type
             let input_array_type = $INPUT_ARRAY.data_type();
             assert!(can_cast_types(input_array_type, $OUTPUT_TYPE));
-            let result = cast($INPUT_ARRAY, $OUTPUT_TYPE).unwrap();
+            // cast() is strict, so the safe half calls CastOptions::default() explicitly
+            let result =
+                cast_with_options($INPUT_ARRAY, $OUTPUT_TYPE, &CastOptions::default()).unwrap();
             assert_eq!($OUTPUT_TYPE, result.data_type());
             assert_eq!(result.as_ref(), &output);
 
@@ -2592,7 +2611,8 @@ mod tests {
         // negative test
         let array = vec![Some(123456), None];
         let array = create_decimal32_array(array, 9, 0).unwrap();
-        let result_safe = cast(&array, &DataType::Decimal32(2, 2));
+        let result_safe =
+            cast_with_options(&array, &DataType::Decimal32(2, 2), &CastOptions::default());
         assert!(result_safe.is_ok());
         let options = CastOptions {
             safe: false,
@@ -2628,7 +2648,8 @@ mod tests {
         // negative test
         let array = vec![Some(123456), None];
         let array = create_decimal64_array(array, 9, 0).unwrap();
-        let result_safe = cast(&array, &DataType::Decimal64(2, 2));
+        let result_safe =
+            cast_with_options(&array, &DataType::Decimal64(2, 2), &CastOptions::default());
         assert!(result_safe.is_ok());
         let options = CastOptions {
             safe: false,
@@ -2664,7 +2685,8 @@ mod tests {
         // negative test
         let array = vec![Some(123456), None];
         let array = create_decimal128_array(array, 10, 0).unwrap();
-        let result_safe = cast(&array, &DataType::Decimal128(2, 2));
+        let result_safe =
+            cast_with_options(&array, &DataType::Decimal128(2, 2), &CastOptions::default());
         assert!(result_safe.is_ok());
         let options = CastOptions {
             safe: false,
@@ -3908,7 +3930,8 @@ mod tests {
         // test u8 to decimal type with overflow the result type
         // the 100 will be converted to 1000_i128, but it is out of range for max value in the precision 3.
         let array = UInt8Array::from(vec![1, 2, 3, 4, 100]);
-        let casted_array = cast(&array, &DataType::Decimal128(3, 1));
+        let casted_array =
+            cast_with_options(&array, &DataType::Decimal128(3, 1), &CastOptions::default());
         assert!(casted_array.is_ok());
         let array = casted_array.unwrap();
         let array: &Decimal128Array = array.as_primitive();
@@ -3917,7 +3940,8 @@ mod tests {
         // test i8 to decimal type with overflow the result type
         // the 100 will be converted to 1000_i128, but it is out of range for max value in the precision 3.
         let array = Int8Array::from(vec![1, 2, 3, 4, 100]);
-        let casted_array = cast(&array, &DataType::Decimal128(3, 1));
+        let casted_array =
+            cast_with_options(&array, &DataType::Decimal128(3, 1), &CastOptions::default());
         assert!(casted_array.is_ok());
         let array = casted_array.unwrap();
         let array: &Decimal128Array = array.as_primitive();
@@ -4075,7 +4099,8 @@ mod tests {
         // the 100 will be converted to 1000_i128, but it is out of range for max value in the precision 3.
         let array = Int8Array::from(vec![1, 2, 3, 4, 100]);
         let array = Arc::new(array) as ArrayRef;
-        let casted_array = cast(&array, &DataType::Decimal256(3, 1));
+        let casted_array =
+            cast_with_options(&array, &DataType::Decimal256(3, 1), &CastOptions::default());
         assert!(casted_array.is_ok());
         let array = casted_array.unwrap();
         let array: &Decimal256Array = array.as_primitive();
@@ -4193,7 +4218,7 @@ mod tests {
     #[test]
     fn test_cast_i32_to_u8() {
         let array = Int32Array::from(vec![-5, 6, -7, 8, 100000000]);
-        let b = cast(&array, &DataType::UInt8).unwrap();
+        let b = cast_with_options(&array, &DataType::UInt8, &CastOptions::default()).unwrap();
         let c = b.as_primitive::<UInt8Type>();
         assert!(!c.is_valid(0));
         assert_eq!(6, c.value(1));
@@ -4222,7 +4247,7 @@ mod tests {
         let array = Int32Array::from(vec![-5, 6, -7, 8, 100000000]);
         assert_eq!(0, array.offset());
         let array = array.slice(2, 3);
-        let b = cast(&array, &DataType::UInt8).unwrap();
+        let b = cast_with_options(&array, &DataType::UInt8, &CastOptions::default()).unwrap();
         assert_eq!(3, b.len());
         let c = b.as_primitive::<UInt8Type>();
         assert!(!c.is_valid(0));
@@ -4382,7 +4407,7 @@ mod tests {
     #[test]
     fn test_cast_utf8_to_i32() {
         let array = StringArray::from(vec!["5", "6", "seven", "8", "9.1"]);
-        let b = cast(&array, &DataType::Int32).unwrap();
+        let b = cast_with_options(&array, &DataType::Int32, &CastOptions::default()).unwrap();
         let c = b.as_primitive::<Int32Type>();
         assert_eq!(5, c.value(0));
         assert_eq!(6, c.value(1));
@@ -4392,9 +4417,52 @@ mod tests {
     }
 
     #[test]
+    fn test_cast_errors_on_failure_by_default() {
+        assert_eq!(
+            CUBESQL_CAST_OPTIONS,
+            CastOptions {
+                safe: false,
+                ..Default::default()
+            }
+        );
+
+        let array = StringArray::from(vec!["5", "seven"]);
+        let err = cast(&array, &DataType::Int32).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Cast error: Cannot cast string 'seven' to value of Int32 type"
+        );
+
+        // Numeric overflow is an error too, as in PostgreSQL ("smallint out of range").
+        // This differs from v13, whose numeric casts ignored CastOptions and returned NULL.
+        let array = Int32Array::from(vec![1, 300]);
+        let err = cast(&array, &DataType::UInt8).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Cast error: Can't cast value 300 to type UInt8"
+        );
+
+        // Values that can be cast are unaffected
+        let array = StringArray::from(vec![Some("5"), None, Some("6")]);
+        let b = cast(&array, &DataType::Int32).unwrap();
+        assert_eq!(
+            b.as_primitive::<Int32Type>(),
+            &Int32Array::from(vec![Some(5), None, Some(6)])
+        );
+
+        // CastOptions::default() still returns NULL on failure
+        let array = StringArray::from(vec!["5", "seven"]);
+        let b = cast_with_options(&array, &DataType::Int32, &CastOptions::default()).unwrap();
+        assert_eq!(
+            b.as_primitive::<Int32Type>(),
+            &Int32Array::from(vec![Some(5), None])
+        );
+    }
+
+    #[test]
     fn test_cast_utf8view_to_i32() {
         let array = StringViewArray::from(vec!["5", "6", "seven", "8", "9.1"]);
-        let b = cast(&array, &DataType::Int32).unwrap();
+        let b = cast_with_options(&array, &DataType::Int32, &CastOptions::default()).unwrap();
         let c = b.as_primitive::<Int32Type>();
         assert_eq!(5, c.value(0));
         assert_eq!(6, c.value(1));
@@ -4406,7 +4474,7 @@ mod tests {
     #[test]
     fn test_cast_utf8view_to_f32() {
         let array = StringViewArray::from(vec!["3", "4.56", "seven", "8.9"]);
-        let b = cast(&array, &DataType::Float32).unwrap();
+        let b = cast_with_options(&array, &DataType::Float32, &CastOptions::default()).unwrap();
         let c = b.as_primitive::<Float32Type>();
         assert_eq!(3.0, c.value(0));
         assert_eq!(4.56, c.value(1));
@@ -4423,7 +4491,7 @@ mod tests {
             Arc::new(LargeStringArray::from(vec!["3", "4.56", "seven", "8.9"])),
         ];
         for array in arrays {
-            let b = cast(&array, &DataType::Float16).unwrap();
+            let b = cast_with_options(&array, &DataType::Float16, &CastOptions::default()).unwrap();
             let c = b.as_primitive::<Float16Type>();
             assert_eq!(half::f16::from_f32(3.0), c.value(0));
             assert_eq!(half::f16::from_f32(4.56), c.value(1));
@@ -4470,7 +4538,8 @@ mod tests {
     #[test]
     fn test_cast_utf8_to_bool() {
         let strings = StringArray::from(vec!["true", "false", "invalid", " Y ", ""]);
-        let casted = cast(&strings, &DataType::Boolean).unwrap();
+        let casted =
+            cast_with_options(&strings, &DataType::Boolean, &CastOptions::default()).unwrap();
         let expected = BooleanArray::from(vec![Some(true), Some(false), None, Some(true), None]);
         assert_eq!(*as_boolean_array(&casted), expected);
     }
@@ -4478,7 +4547,8 @@ mod tests {
     #[test]
     fn test_cast_utf8view_to_bool() {
         let strings = StringViewArray::from(vec!["true", "false", "invalid", " Y ", ""]);
-        let casted = cast(&strings, &DataType::Boolean).unwrap();
+        let casted =
+            cast_with_options(&strings, &DataType::Boolean, &CastOptions::default()).unwrap();
         let expected = BooleanArray::from(vec![Some(true), Some(false), None, Some(true), None]);
         assert_eq!(*as_boolean_array(&casted), expected);
     }
@@ -4791,7 +4861,7 @@ mod tests {
         let a = Date64Array::from(vec![i64::MAX]);
         let array = Arc::new(a) as ArrayRef;
 
-        let b = cast(&array, &DataType::Date32).unwrap();
+        let b = cast_with_options(&array, &DataType::Date32, &CastOptions::default()).unwrap();
         let c = b.as_primitive::<Date32Type>();
         assert!(c.is_null(0));
 
@@ -4856,7 +4926,7 @@ mod tests {
                 TimeUnit::Nanosecond,
             ] {
                 let to_type = DataType::Timestamp(*time_unit, None);
-                let b = cast(array, &to_type).unwrap();
+                let b = cast_with_options(array, &to_type, &CastOptions::default()).unwrap();
 
                 match time_unit {
                     TimeUnit::Second => {
@@ -4945,7 +5015,7 @@ mod tests {
         ])) as ArrayRef;
         for array in &[a0, a1, a2] {
             let to_type = DataType::Date32;
-            let b = cast(array, &to_type).unwrap();
+            let b = cast_with_options(array, &to_type, &CastOptions::default()).unwrap();
             let c = b.as_primitive::<Date32Type>();
             assert_eq!(17890, c.value(0));
             assert!(c.is_null(1));
@@ -5105,7 +5175,7 @@ mod tests {
         ])) as ArrayRef;
         for array in &[a0, a1, a2] {
             let to_type = DataType::Time32(TimeUnit::Second);
-            let b = cast(array, &to_type).unwrap();
+            let b = cast_with_options(array, &to_type, &CastOptions::default()).unwrap();
             let c = b.as_primitive::<Time32SecondType>();
             assert_eq!(29315, c.value(0));
             assert_eq!(29340, c.value(1));
@@ -5150,7 +5220,7 @@ mod tests {
         ])) as ArrayRef;
         for array in &[a0, a1, a2] {
             let to_type = DataType::Time32(TimeUnit::Millisecond);
-            let b = cast(array, &to_type).unwrap();
+            let b = cast_with_options(array, &to_type, &CastOptions::default()).unwrap();
             let c = b.as_primitive::<Time32MillisecondType>();
             assert_eq!(29315091, c.value(0));
             assert_eq!(29340091, c.value(1));
@@ -5189,7 +5259,7 @@ mod tests {
         ])) as ArrayRef;
         for array in &[a0, a1, a2] {
             let to_type = DataType::Time64(TimeUnit::Microsecond);
-            let b = cast(array, &to_type).unwrap();
+            let b = cast_with_options(array, &to_type, &CastOptions::default()).unwrap();
             let c = b.as_primitive::<Time64MicrosecondType>();
             assert_eq!(29315091323, c.value(0));
             assert!(c.is_null(1));
@@ -5226,7 +5296,7 @@ mod tests {
         ])) as ArrayRef;
         for array in &[a0, a1, a2] {
             let to_type = DataType::Time64(TimeUnit::Nanosecond);
-            let b = cast(array, &to_type).unwrap();
+            let b = cast_with_options(array, &to_type, &CastOptions::default()).unwrap();
             let c = b.as_primitive::<Time64NanosecondType>();
             assert_eq!(29315091323414, c.value(0));
             assert!(c.is_null(1));
@@ -5263,7 +5333,7 @@ mod tests {
         ])) as ArrayRef;
         for array in &[a0, a1, a2] {
             let to_type = DataType::Date64;
-            let b = cast(array, &to_type).unwrap();
+            let b = cast_with_options(array, &to_type, &CastOptions::default()).unwrap();
             let c = b.as_primitive::<Date64Type>();
             assert_eq!(1599566400000, c.value(0));
             assert!(c.is_null(1));
@@ -5759,7 +5829,12 @@ mod tests {
                 i64::MAX,
             ]);
             let expected = Date32Array::from(vec![None, Some(i32::MAX), None, None, None]);
-            assert_eq!(cast(&array, &Date32).unwrap().as_ref(), &expected);
+            assert_eq!(
+                cast_with_options(&array, &Date32, &CastOptions::default())
+                    .unwrap()
+                    .as_ref(),
+                &expected
+            );
             let options = CastOptions {
                 safe: false,
                 ..Default::default()
@@ -5792,9 +5867,10 @@ mod tests {
             Time64(TimeUnit::Nanosecond),
         ] {
             // A timezone that fails to parse is an error even when the cast is safe.
+            assert!(cast_with_options(&invalid, &target, &CastOptions::default()).is_err());
             assert!(cast(&invalid, &target).is_err());
             // A timestamp outside Chrono's date range is null when safe, otherwise an error.
-            let actual = cast(&extreme, &target).unwrap();
+            let actual = cast_with_options(&extreme, &target, &CastOptions::default()).unwrap();
             assert!(actual.is_valid(0));
             assert!(actual.is_null(1));
             assert!(cast_with_options(&extreme, &target, &options).is_err());
@@ -5850,7 +5926,7 @@ mod tests {
 
         // test overflow, safe cast
         let array = TimestampSecondArray::from(vec![Some(i64::MAX)]);
-        let b = cast(&array, &DataType::Date64).unwrap();
+        let b = cast_with_options(&array, &DataType::Date64, &CastOptions::default()).unwrap();
         assert!(b.is_null(0));
         // test overflow, unsafe cast
         let array = TimestampSecondArray::from(vec![Some(i64::MAX)]);
@@ -5903,7 +5979,11 @@ mod tests {
 
         // Flooring i64::MIN milliseconds to a whole day overflows.
         let array = TimestampMillisecondArray::from(vec![i64::MIN]);
-        assert!(cast(&array, &DataType::Date64).unwrap().is_null(0));
+        assert!(
+            cast_with_options(&array, &DataType::Date64, &CastOptions::default())
+                .unwrap()
+                .is_null(0)
+        );
         let options = CastOptions {
             safe: false,
             ..Default::default()
@@ -5976,9 +6056,19 @@ mod tests {
         let a =
             TimestampSecondArray::from(vec![Some(i64::MAX)]).with_timezone("+01:00".to_string());
         let array = Arc::new(a) as ArrayRef;
-        let b = cast(&array, &DataType::Time64(TimeUnit::Microsecond)).unwrap();
+        let b = cast_with_options(
+            &array,
+            &DataType::Time64(TimeUnit::Microsecond),
+            &CastOptions::default(),
+        )
+        .unwrap();
         assert!(b.is_null(0));
-        let b = cast(&array, &DataType::Time64(TimeUnit::Nanosecond)).unwrap();
+        let b = cast_with_options(
+            &array,
+            &DataType::Time64(TimeUnit::Nanosecond),
+            &CastOptions::default(),
+        )
+        .unwrap();
         assert!(b.is_null(0));
         // test overflow, unsafe cast
         let options = CastOptions {
@@ -6060,9 +6150,19 @@ mod tests {
         let a =
             TimestampSecondArray::from(vec![Some(i64::MAX)]).with_timezone("+01:00".to_string());
         let array = Arc::new(a) as ArrayRef;
-        let b = cast(&array, &DataType::Time32(TimeUnit::Second)).unwrap();
+        let b = cast_with_options(
+            &array,
+            &DataType::Time32(TimeUnit::Second),
+            &CastOptions::default(),
+        )
+        .unwrap();
         assert!(b.is_null(0));
-        let b = cast(&array, &DataType::Time32(TimeUnit::Millisecond)).unwrap();
+        let b = cast_with_options(
+            &array,
+            &DataType::Time32(TimeUnit::Millisecond),
+            &CastOptions::default(),
+        )
+        .unwrap();
         assert!(b.is_null(0));
         // test overflow, unsafe cast
         let options = CastOptions {
@@ -6831,7 +6931,12 @@ mod tests {
             Some(10241096),
             None,
         ]);
-        let b = cast(&array, &DataType::Duration(TimeUnit::Nanosecond)).unwrap();
+        let b = cast_with_options(
+            &array,
+            &DataType::Duration(TimeUnit::Nanosecond),
+            &CastOptions::default(),
+        )
+        .unwrap();
         let c = b.as_primitive::<DurationNanosecondType>();
         assert!(c.is_null(0));
         assert!(c.is_null(1));
@@ -6852,7 +6957,7 @@ mod tests {
         assert_eq!(10241096, c.value(2));
         assert!(c.is_null(3));
 
-        let b = cast(&array, &DataType::Int32).unwrap();
+        let b = cast_with_options(&array, &DataType::Int32, &CastOptions::default()).unwrap();
         let c = b.as_primitive::<Int32Type>();
         assert_eq!(0, c.value(0));
         assert_eq!(0, c.value(1));
@@ -8340,7 +8445,7 @@ mod tests {
     where
         T: ArrowPrimitiveType,
     {
-        let c = cast(array, dt).unwrap();
+        let c = cast_with_options(array, dt, &CastOptions::default()).unwrap();
         let a = c.as_primitive::<T>();
         let mut v: Vec<String> = vec![];
         for i in 0..array.len() {
@@ -8507,7 +8612,7 @@ mod tests {
             "2000\\06\\06",        // valid date with '\' delimiter
         ]);
         let array = Arc::new(a) as ArrayRef;
-        let b = cast(&array, &DataType::Date32).unwrap();
+        let b = cast_with_options(&array, &DataType::Date32, &CastOptions::default()).unwrap();
         let c = b.as_primitive::<Date32Type>();
 
         // test valid inputs
@@ -8557,7 +8662,7 @@ mod tests {
             "2000-01-01",          // just a date is invalid
         ]);
         let array = Arc::new(a) as ArrayRef;
-        let b = cast(&array, &DataType::Date64).unwrap();
+        let b = cast_with_options(&array, &DataType::Date64, &CastOptions::default()).unwrap();
         let c = b.as_primitive::<Date64Type>();
 
         // test valid inputs
@@ -8670,7 +8775,12 @@ mod tests {
         );
         // One value beyond the bound sends the whole array down the checked path.
         let array = Int64Array::from(vec![Some(bound + 1), Some(1)]);
-        let result = cast(&array, &DataType::Decimal128(18, 2)).unwrap();
+        let result = cast_with_options(
+            &array,
+            &DataType::Decimal128(18, 2),
+            &CastOptions::default(),
+        )
+        .unwrap();
         let result = result.as_primitive::<Decimal128Type>();
         assert!(result.is_null(0));
         assert_eq!(result.value(1), 100);
@@ -9136,7 +9246,7 @@ mod tests {
         let expected = Decimal256Array::from(vec![Some(i256::ZERO), None, None])
             .with_precision_and_scale(76, 0)
             .unwrap();
-        let result = cast(&input, &output_type).unwrap();
+        let result = cast_with_options(&input, &output_type, &CastOptions::default()).unwrap();
         assert_eq!(result.as_primitive::<Decimal256Type>(), &expected);
 
         let options = CastOptions {
@@ -9163,7 +9273,7 @@ mod tests {
         let expected = Decimal256Array::from(vec![None, None])
             .with_precision_and_scale(76, 0)
             .unwrap();
-        let result = cast(&input, &output_type).unwrap();
+        let result = cast_with_options(&input, &output_type, &CastOptions::default()).unwrap();
         assert_eq!(result.as_primitive::<Decimal256Type>(), &expected);
 
         let options = CastOptions {
@@ -9422,7 +9532,8 @@ mod tests {
         let output_type = DataType::Decimal128(38, 2);
         assert!(can_cast_types(array.data_type(), &output_type));
 
-        let casted_array = cast(&array, &output_type).unwrap();
+        let casted_array =
+            cast_with_options(&array, &output_type, &CastOptions::default()).unwrap();
         let decimal_arr = casted_array.as_primitive::<Decimal128Type>();
 
         assert_eq!("123.45", decimal_arr.value_as_string(0));
@@ -9462,7 +9573,8 @@ mod tests {
         let output_type = DataType::Decimal256(76, 3);
         assert!(can_cast_types(array.data_type(), &output_type));
 
-        let casted_array = cast(&array, &output_type).unwrap();
+        let casted_array =
+            cast_with_options(&array, &output_type, &CastOptions::default()).unwrap();
         let decimal_arr = casted_array.as_primitive::<Decimal256Type>();
 
         assert_eq!("123.450", decimal_arr.value_as_string(0));
@@ -9620,14 +9732,16 @@ mod tests {
         // Decimal128
         let output_type = DataType::Decimal128(38, 0);
         assert!(can_cast_types(array.data_type(), &output_type));
-        let casted_array = cast(&array, &output_type).unwrap();
+        let casted_array =
+            cast_with_options(&array, &output_type, &CastOptions::default()).unwrap();
         let decimal_arr = casted_array.as_primitive::<Decimal128Type>();
         assert_decimal_array_contents(decimal_arr, expected_as_string);
 
         // Decimal256
         let output_type = DataType::Decimal256(76, 0);
         assert!(can_cast_types(array.data_type(), &output_type));
-        let casted_array = cast(&array, &output_type).unwrap();
+        let casted_array =
+            cast_with_options(&array, &output_type, &CastOptions::default()).unwrap();
         let decimal_arr = casted_array.as_primitive::<Decimal256Type>();
         assert_decimal_array_contents(decimal_arr, expected_as_string);
     }
@@ -9657,12 +9771,14 @@ mod tests {
 
         // Safe cast
         let output_type = DataType::Decimal128(38, 2);
-        let casted_array = cast(&array, &output_type).unwrap();
+        let casted_array =
+            cast_with_options(&array, &output_type, &CastOptions::default()).unwrap();
         assert!(casted_array.is_null(0));
         assert!(casted_array.is_null(1));
 
         let output_type = DataType::Decimal256(76, 2);
-        let casted_array = cast(&array, &output_type).unwrap();
+        let casted_array =
+            cast_with_options(&array, &output_type, &CastOptions::default()).unwrap();
         assert!(casted_array.is_null(0));
         assert!(casted_array.is_null(1));
 
@@ -9702,7 +9818,8 @@ mod tests {
 
     fn test_cast_string_to_decimal128_overflow(overflow_array: ArrayRef) {
         let output_type = DataType::Decimal128(38, 2);
-        let casted_array = cast(&overflow_array, &output_type).unwrap();
+        let casted_array =
+            cast_with_options(&overflow_array, &output_type, &CastOptions::default()).unwrap();
         let decimal_arr = casted_array.as_primitive::<Decimal128Type>();
 
         assert!(decimal_arr.is_null(0));
@@ -9777,7 +9894,8 @@ mod tests {
 
     fn test_cast_string_to_decimal256_overflow(overflow_array: ArrayRef) {
         let output_type = DataType::Decimal256(76, 2);
-        let casted_array = cast(&overflow_array, &output_type).unwrap();
+        let casted_array =
+            cast_with_options(&overflow_array, &output_type, &CastOptions::default()).unwrap();
         let decimal_arr = casted_array.as_primitive::<Decimal256Type>();
 
         assert_eq!(
@@ -9958,7 +10076,12 @@ mod tests {
         );
         assert!(err.is_err());
 
-        let b = cast(&array, &DataType::Timestamp(TimeUnit::Microsecond, None)).unwrap();
+        let b = cast_with_options(
+            &array,
+            &DataType::Timestamp(TimeUnit::Microsecond, None),
+            &CastOptions::default(),
+        )
+        .unwrap();
         let c = b.as_primitive::<TimestampMicrosecondType>();
         assert_eq!(MAX_DAYS_MICROS as i64 * MICROSECONDS_IN_DAY, c.value(0));
         assert!(c.is_null(1));
@@ -9981,7 +10104,12 @@ mod tests {
         );
         assert!(err.is_err());
 
-        let b = cast(&array, &DataType::Timestamp(TimeUnit::Nanosecond, None)).unwrap();
+        let b = cast_with_options(
+            &array,
+            &DataType::Timestamp(TimeUnit::Nanosecond, None),
+            &CastOptions::default(),
+        )
+        .unwrap();
         let c = b.as_primitive::<TimestampNanosecondType>();
         assert_eq!(upper_limit as i64 * NANOSECONDS_IN_DAY, c.value(0));
         assert!(c.is_null(1));
@@ -10922,8 +11050,18 @@ mod tests {
             ]
             .into(),
         );
-        cast(&struct_array, &to_type).expect_err(
+        let err = cast_with_options(&struct_array, &to_type, &CastOptions::default()).expect_err(
             "Cast non-nullable to non-nullable struct field returning null should fail",
+        );
+        assert!(
+            err.to_string().contains("Found unmasked nulls"),
+            "unexpected error: {err}"
+        );
+        // cast() is strict and fails on the overflowing value itself
+        let err = cast(&struct_array, &to_type).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Cast error: Can't cast value 2147483647 to type Int8"
         );
     }
 
@@ -12202,7 +12340,12 @@ mod tests {
     fn test_cast_time32_second_to_time32_millisecond_overflow() {
         let array = Time32SecondArray::from(vec![i32::MAX]);
 
-        let b = cast(&array, &DataType::Time32(TimeUnit::Millisecond)).unwrap();
+        let b = cast_with_options(
+            &array,
+            &DataType::Time32(TimeUnit::Millisecond),
+            &CastOptions::default(),
+        )
+        .unwrap();
         let c = b.as_primitive::<Time32MillisecondType>();
         assert!(c.is_null(0));
 
@@ -12216,7 +12359,7 @@ mod tests {
     }
 
     fn assert_temporal_overflow_is_safe(array: &dyn Array, to_type: &DataType) {
-        let result = cast(array, to_type).unwrap();
+        let result = cast_with_options(array, to_type, &CastOptions::default()).unwrap();
         assert_eq!(result.null_count(), array.len());
 
         let options = CastOptions {
@@ -12281,7 +12424,8 @@ mod tests {
                 Some(i32::MAX),
                 None,
             ]);
-            let result = cast(&array, &TO::DATA_TYPE).unwrap();
+            let result =
+                cast_with_options(&array, &TO::DATA_TYPE, &CastOptions::default()).unwrap();
             assert_eq!(result.as_primitive::<TO>(), &expected);
 
             let options = CastOptions {
@@ -12321,7 +12465,8 @@ mod tests {
                 Some(max * multiplier),
                 None,
             ]);
-            let result = cast(&array, &TO::DATA_TYPE).unwrap();
+            let result =
+                cast_with_options(&array, &TO::DATA_TYPE, &CastOptions::default()).unwrap();
             assert_eq!(result.as_primitive::<TO>(), &expected);
             let options = CastOptions {
                 safe: false,

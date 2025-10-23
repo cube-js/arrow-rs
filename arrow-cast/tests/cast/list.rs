@@ -120,7 +120,7 @@ fn test_cast_list_i32_to_list_u16() {
 
     let target_type = DataType::List(Arc::new(Field::new("item", DataType::UInt16, true)));
     assert!(can_cast_types(list_array.data_type(), &target_type));
-    let cast_array = cast(&list_array, &target_type).unwrap();
+    let cast_array = cast_with_options(&list_array, &target_type, &CastOptions::default()).unwrap();
 
     // For the ListArray itself, there are no null values (as there were no nulls when they went in)
     //
@@ -806,7 +806,12 @@ fn test_issue_10975_sliced_list_to_fsl_safety() {
             ],
             2,
         );
-        let actual = cast(&input.slice(1, 5), expected.data_type()).unwrap();
+        let actual = cast_with_options(
+            &input.slice(1, 5),
+            expected.data_type(),
+            &CastOptions::default(),
+        )
+        .unwrap();
         assert_eq!(actual.as_ref(), &expected as &dyn Array);
         assert_eq!(actual.as_fixed_size_list().values().len(), 10);
         let strict = CastOptions {
@@ -1109,9 +1114,10 @@ fn test_cast_list_to_fsl_safety() {
 
     // When safe=true (default), the cast will fill nulls for lists that are
     // too short and truncate lists that are too long.
-    let res = cast(
+    let res = cast_with_options(
         array.as_ref(),
         &DataType::FixedSizeList(Arc::new(Field::new_list_field(DataType::Int32, true)), 3),
+        &CastOptions::default(),
     )
     .unwrap();
     let expected = Arc::new(FixedSizeListArray::from_iter_primitive::<Int32Type, _, _>(
@@ -1175,9 +1181,10 @@ fn test_cast_list_view_to_fsl_safety() {
 
     // When safe=true (default), the cast will fill nulls for lists that are
     // too short and truncate lists that are too long.
-    let res = cast(
+    let res = cast_with_options(
         array.as_ref(),
         &DataType::FixedSizeList(Arc::new(Field::new_list_field(DataType::Int32, true)), 3),
+        &CastOptions::default(),
     )
     .unwrap();
     let expected = Arc::new(FixedSizeListArray::from_iter_primitive::<Int32Type, _, _>(
@@ -1573,7 +1580,7 @@ fn test_cast_list_to_list_view_null_in_non_nullable_field() {
         (DataType::ListView(field.clone()), "ListViewArray"),
         (DataType::LargeListView(field), "LargeListViewArray"),
     ] {
-        let err = cast(&list, &target_type).unwrap_err();
+        let err = cast_with_options(&list, &target_type, &CastOptions::default()).unwrap_err();
         assert_eq!(
             err.to_string(),
             format!(

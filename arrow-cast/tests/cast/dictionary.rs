@@ -30,7 +30,7 @@ use arrow_array::{
 };
 use arrow_buffer::NullBuffer;
 use arrow_cast::display::{ArrayFormatter, FormatOptions};
-use arrow_cast::{can_cast_types, cast};
+use arrow_cast::{CastOptions, can_cast_types, cast, cast_with_options};
 use arrow_schema::{ArrowError, DataType, Field, TimeUnit};
 #[test]
 fn test_fixed_size_binary_to_dictionary() {
@@ -636,7 +636,7 @@ fn test_cast_dict_to_dict_bad_index_value_primitive() {
     let array: ArrayRef = Arc::new(builder.finish());
 
     let cast_type = Dictionary(Box::new(Int8), Box::new(Utf8));
-    let res = cast(&array, &cast_type);
+    let res = cast_with_options(&array, &cast_type, &CastOptions::default());
     assert!(res.is_err());
     let actual_error = format!("{res:?}");
     let expected_error = "Could not convert 72 dictionary indexes from Int32 to Int8";
@@ -663,7 +663,7 @@ fn test_cast_dict_to_dict_bad_index_value_utf8() {
     let array = builder.finish();
 
     let cast_type = Dictionary(Box::new(Int8), Box::new(Utf8));
-    let res = cast(&array, &cast_type);
+    let res = cast_with_options(&array, &cast_type, &CastOptions::default());
     assert!(res.is_err());
     let actual_error = format!("{res:?}");
     let expected_error = "Could not convert 72 dictionary indexes from Int32 to Int8";
