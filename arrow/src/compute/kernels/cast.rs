@@ -63,6 +63,7 @@ pub struct CastOptions {
 }
 
 pub const DEFAULT_CAST_OPTIONS: CastOptions = CastOptions { safe: true };
+pub const CUBESQL_CAST_OPTIONS: CastOptions = CastOptions { safe: false };
 
 /// Return true if a value of type `from_type` can be cast into a
 /// value of `to_type`. Note that such as cast may be lossy.
@@ -314,7 +315,7 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
 /// * List to primitive
 /// * Interval and duration
 pub fn cast(array: &ArrayRef, to_type: &DataType) -> Result<ArrayRef> {
-    cast_with_options(array, to_type, &DEFAULT_CAST_OPTIONS)
+    cast_with_options(array, to_type, &CUBESQL_CAST_OPTIONS)
 }
 
 // cast the integer array to defined decimal data type array
