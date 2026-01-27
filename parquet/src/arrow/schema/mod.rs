@@ -629,6 +629,8 @@ fn arrow_to_parquet_type(field: &Field, coerce_types: bool) -> Result<Type> {
                 (PhysicalType::INT32, -1)
             } else if *precision <= 18 {
                 (PhysicalType::INT64, -1)
+            } else if *precision <= 28 {
+                (PhysicalType::INT96, -1)
             } else {
                 (
                     PhysicalType::FIXED_LEN_BYTE_ARRAY,

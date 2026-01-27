@@ -39,6 +39,7 @@ use crate::column::writer::encoder::ColumnValueEncoder;
 use crate::column::writer::{
     get_column_writer, ColumnCloseResult, ColumnWriter, GenericColumnWriter,
 };
+use crate::data_type::Int96;
 use crate::data_type::{ByteArray, FixedLenByteArray};
 use crate::errors::{ParquetError, Result};
 use crate::file::encryption::{
@@ -1044,9 +1045,16 @@ fn write_leaf(writer: &mut ColumnWriter<'_>, levels: &ArrayLevels) -> Result<usi
                 }
             }
         }
-        ColumnWriter::Int96ColumnWriter(ref mut _typed) => {
-            unreachable!("Currently unreachable because data type not supported")
-        }
+        ColumnWriter::Int96ColumnWriter(ref mut typed) => match column.data_type() {
+            ArrowDataType::Decimal128(_, _) => {
+                // Cube: Decimal96 backwards compatibility - write Decimal128 as INT96
+                let array = column.as_primitive::<Decimal128Type>();
+                let int96_values: Vec<Int96> =
+                    array.values().iter().map(|v| i128_to_int96(*v)).collect();
+                typed.write_batch(&int96_values, levels.def_levels(), levels.rep_levels())
+            }
+            _ => unreachable!("INT96 column writer only supports Decimal128 for Decimal96"),
+        },
         ColumnWriter::FloatColumnWriter(ref mut typed) => {
             let array = column.as_primitive::<Float32Type>();
             write_primitive(typed, array.values(), levels)
@@ -1223,6 +1231,19 @@ fn get_fsb_array_slice(
         values.push(FixedLenByteArray::from(ByteArray::from(value)))
     }
     values
+}
+
+/// Cube: Convert i128 to Int96 for Decimal96 backwards compatibility
+/// Int96 stores 12 bytes (96 bits), we take lower 12 bytes from i128
+fn i128_to_int96(value: i128) -> Int96 {
+    let bytes = value.to_le_bytes();
+    let mut int96 = Int96::new();
+    int96.set_data(
+        u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
+        u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+        u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
+    );
+    int96
 }
 
 #[cfg(test)]
