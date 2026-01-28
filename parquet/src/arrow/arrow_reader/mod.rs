@@ -121,7 +121,10 @@ impl<T> ArrowReaderBuilder<T> {
     /// Enables splitting of row group I/O into multiple reads, with the goal of loading less data
     /// into memory at a time.
     pub fn with_split_row_group_reads(self, split_row_group_reads: bool) -> Self {
-        Self { split_row_group_reads, ..self }
+        Self {
+            split_row_group_reads,
+            ..self
+        }
     }
 
     /// Only read data from the provided row group indexes
@@ -329,7 +332,7 @@ impl ArrowReaderOptions {
     ///
     /// // Create the reader and read the data using the supplied schema.
     /// let mut reader = builder.build().unwrap();
-    /// let _batch = reader.next().unwrap().unwrap();   
+    /// let _batch = reader.next().unwrap().unwrap();
     /// ```
     pub fn with_schema(self, schema: SchemaRef) -> Self {
         Self {
@@ -4069,7 +4072,7 @@ mod tests {
     fn test_decimal_roundtrip<T: DecimalType>() {
         // Precision <= 9 -> INT32
         // Precision <= 18 -> INT64
-        // Precision > 18 -> FIXED_LEN_BYTE_ARRAY
+        // Precision > 27 -> FIXED_LEN_BYTE_ARRAY
 
         let d = |values: Vec<usize>, p: u8| {
             let iter = values.into_iter().map(T::Native::usize_as);
@@ -4081,7 +4084,7 @@ mod tests {
         let d1 = d(vec![1, 2, 3, 4, 5], 9);
         let d2 = d(vec![1, 2, 3, 4, 10.pow(10) - 1], 10);
         let d3 = d(vec![1, 2, 3, 4, 10.pow(18) - 1], 18);
-        let d4 = d(vec![1, 2, 3, 4, 10.pow(19) - 1], 19);
+        let d4 = d(vec![1, 2, 3, 4, 10.pow(18) - 1], 28);
 
         let batch = RecordBatch::try_from_iter([
             ("d1", Arc::new(d1) as ArrayRef),
@@ -4113,10 +4116,57 @@ mod tests {
         assert_eq!(batch, out);
     }
 
+    fn test_decimal_roundtrip_int96() {
+        // Decimal128 Precision > 18 && <= 27 -> INT96
+        // Decimal256 Precision > 18 && <= 27 -> FIXED_LEN_BYTE_ARRAY
+
+        fn d<T: DecimalType>(values: Vec<usize>, p: u8) -> PrimitiveArray<T> {
+            let iter = values.into_iter().map(T::Native::usize_as);
+            PrimitiveArray::<T>::from_iter_values(iter)
+                .with_precision_and_scale(p, 2)
+                .unwrap()
+        }
+
+        let d1 = d::<Decimal128Type>(vec![1, 2, 3, 4, 10.pow(18) - 1], 19);
+        let d2 = d::<Decimal128Type>(vec![1, 2, 3, 4, 10.pow(18) - 1], 27);
+        let d3 = d::<Decimal256Type>(vec![1, 2, 3, 4, 10.pow(18) - 1], 19);
+        let d4 = d::<Decimal256Type>(vec![1, 2, 3, 4, 10.pow(18) - 1], 27);
+
+        let batch = RecordBatch::try_from_iter([
+            ("d1", Arc::new(d1) as ArrayRef),
+            ("d2", Arc::new(d2) as ArrayRef),
+            ("d3", Arc::new(d3) as ArrayRef),
+            ("d4", Arc::new(d4) as ArrayRef),
+        ])
+        .unwrap();
+
+        let mut buffer = Vec::with_capacity(1024);
+        let mut writer = ArrowWriter::try_new(&mut buffer, batch.schema(), None).unwrap();
+        writer.write(&batch).unwrap();
+        writer.close().unwrap();
+
+        let builder = ParquetRecordBatchReaderBuilder::try_new(Bytes::from(buffer)).unwrap();
+        let t1 = builder.parquet_schema().columns()[0].physical_type();
+        assert_eq!(t1, PhysicalType::INT96);
+        let t2 = builder.parquet_schema().columns()[1].physical_type();
+        assert_eq!(t2, PhysicalType::INT96);
+        let t3 = builder.parquet_schema().columns()[2].physical_type();
+        assert_eq!(t3, PhysicalType::FIXED_LEN_BYTE_ARRAY);
+        let t4 = builder.parquet_schema().columns()[3].physical_type();
+        assert_eq!(t4, PhysicalType::FIXED_LEN_BYTE_ARRAY);
+
+        let mut reader = builder.build().unwrap();
+        assert_eq!(batch.schema(), reader.schema());
+
+        let out = reader.next().unwrap().unwrap();
+        assert_eq!(batch, out);
+    }
+
     #[test]
     fn test_decimal() {
         test_decimal_roundtrip::<Decimal128Type>();
         test_decimal_roundtrip::<Decimal256Type>();
+        test_decimal_roundtrip_int96();
     }
 
     #[test]

@@ -1,6 +1,7 @@
 Cargo.lock
 target
 rusty-tags.vi
+.claude
 .history
 .flatbuffers/
 .idea/

@@ -34,7 +34,7 @@ use crate::file::{
         decrypt_module, ParquetEncryptionConfig, ParquetEncryptionKey, ParquetEncryptionMode,
         RandomFileIdentifier, AAD_FILE_UNIQUE_SIZE, PARQUET_KEY_HASH_LENGTH,
     },
-    PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE_READONLY, PARQUET_MAGIC_ENCRYPTED_FOOTER,
+    PARQUET_MAGIC_ENCRYPTED_FOOTER, PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE_READONLY,
 };
 use crate::file::{FOOTER_SIZE, PARQUET_MAGIC};
 use crate::format::{
@@ -755,7 +755,9 @@ impl ParquetMetaDataReader {
                 }
             }
             encrypted_footer = false;
-        } else if trailing_magic == PARQUET_MAGIC_ENCRYPTED_FOOTER || trailing_magic == PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE_READONLY {
+        } else if trailing_magic == PARQUET_MAGIC_ENCRYPTED_FOOTER
+            || trailing_magic == PARQUET_MAGIC_ENCRYPTED_FOOTER_CUBE_READONLY
+        {
             let has_keys = encryption_config.as_ref().map_or(false, |config| {
                 config
                     .read_keys()

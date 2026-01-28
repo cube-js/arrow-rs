@@ -736,7 +736,8 @@ impl<R: ChunkReader> SerializedPageReader<R> {
                     // This assumes we have either a data page or dictionary page.  INDEX_PAGE is an
                     // "unknown page type" and encryption would fail if we encountered it -- but our
                     // encrypted files don't have it.
-                    (_aad_module_type, aad_header_module_type) = Self::module_types(aad_page_ordinal);
+                    (_aad_module_type, aad_header_module_type) =
+                        Self::module_types(aad_page_ordinal);
 
                     if *remaining_bytes == 0 {
                         return Ok(None);
@@ -1441,7 +1442,7 @@ mod tests {
             let row_group_metadata = file_reader.metadata.row_group(row_group);
             let props = Arc::clone(&file_reader.props);
             let f = Arc::clone(&file_reader.chunk_reader);
-            assert!(file_reader.metadata.file_encryption_info().is_none());  // We pass None to the SerializedPageReader below
+            assert!(file_reader.metadata.file_encryption_info().is_none()); // We pass None to the SerializedPageReader below
             SerializedRowGroupReader::new(
                 f,
                 &None,

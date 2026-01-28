@@ -837,7 +837,14 @@ pub(crate) fn get_fb_field_type<'a>(
             let mut builder = crate::DecimalBuilder::new(fbb);
             builder.add_precision(*precision as i32);
             builder.add_scale(*scale as i32);
-            builder.add_bitWidth(128);
+            let bit_width = if *precision > 1 && *precision <= 18 {
+                64
+            } else if *precision <= 27 {
+                96
+            } else {
+                128
+            };
+            builder.add_bitWidth(bit_width);
             FBFieldType {
                 type_type: crate::Type::Decimal,
                 type_: builder.finish().as_union_value(),

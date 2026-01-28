@@ -629,6 +629,9 @@ fn arrow_to_parquet_type(field: &Field, coerce_types: bool) -> Result<Type> {
                 (PhysicalType::INT32, -1)
             } else if *precision <= 18 {
                 (PhysicalType::INT64, -1)
+            } else if *precision <= 27 && matches!(field.data_type(), DataType::Decimal128(_, _)) {
+                // For backward compatibility with older Cube Store versions
+                (PhysicalType::INT96, -1)
             } else {
                 (
                     PhysicalType::FIXED_LEN_BYTE_ARRAY,
