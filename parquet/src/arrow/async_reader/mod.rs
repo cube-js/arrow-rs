@@ -855,17 +855,21 @@ where
                     let selection: Option<RowSelection>;
                     let row_group_idx: usize;
 
-                    if let Some((active_row_group_idx, remaining_selection)) = self.active_row_group_and_selection.take() {
+                    if let Some((active_row_group_idx, remaining_selection)) =
+                        self.active_row_group_and_selection.take()
+                    {
                         if !remaining_selection.selects_any() {
                             continue;
                         } else {
                             reader = self.reader.take().expect("lost reader");
 
-                            let new_remaining_selection = remaining_selection.clone().offset(self.batch_size);
+                            let new_remaining_selection =
+                                remaining_selection.clone().offset(self.batch_size);
                             selection = Some(remaining_selection.limit(self.batch_size));
                             row_group_idx = active_row_group_idx;
 
-                            self.active_row_group_and_selection = Some((active_row_group_idx, new_remaining_selection));
+                            self.active_row_group_and_selection =
+                                Some((active_row_group_idx, new_remaining_selection));
                         }
                     } else {
                         row_group_idx = match self.row_groups.pop_front() {
@@ -878,17 +882,26 @@ where
                         let row_count = self.metadata.row_group(row_group_idx).num_rows() as usize;
 
                         if self.split_row_group_reads {
-                            let remaining_selection = self.selection.as_mut().map_or_else(|| RowSelection::from_consecutive_ranges([0..row_count].into_iter(), row_count), |s| s.split_off(row_count));
+                            let remaining_selection = self.selection.as_mut().map_or_else(
+                                || {
+                                    RowSelection::from_consecutive_ranges(
+                                        [0..row_count].into_iter(),
+                                        row_count,
+                                    )
+                                },
+                                |s| s.split_off(row_count),
+                            );
 
-                            let new_remaining_selection = remaining_selection.clone().offset(self.batch_size);
+                            let new_remaining_selection =
+                                remaining_selection.clone().offset(self.batch_size);
                             selection = Some(remaining_selection.limit(self.batch_size));
 
-                            self.active_row_group_and_selection = Some((row_group_idx, new_remaining_selection));
+                            self.active_row_group_and_selection =
+                                Some((row_group_idx, new_remaining_selection));
                         } else {
                             selection = self.selection.as_mut().map(|s| s.split_off(row_count));
                         }
                     }
-
 
                     let fut = reader
                         .read_row_group(

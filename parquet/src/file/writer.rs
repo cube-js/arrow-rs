@@ -399,14 +399,12 @@ fn write_bloom_filters<W: Write + Send>(
     // write bloom filter to the file
 
     let row_group_ordinal: i16 = row_group.ordinal().expect("Missing row group ordinal");
-    let row_group_idx: u16 = row_group_ordinal
-        .try_into()
-        .map_err(|_| {
-            ParquetError::General(format!(
-                "Negative row group ordinal: {})",
-                row_group.ordinal().unwrap()
-            ))
-        })?;
+    let row_group_idx: u16 = row_group_ordinal.try_into().map_err(|_| {
+        ParquetError::General(format!(
+            "Negative row group ordinal: {})",
+            row_group.ordinal().unwrap()
+        ))
+    })?;
     let row_group_idx = row_group_idx as usize;
     for (column_idx, column_chunk) in row_group.columns_mut().iter_mut().enumerate() {
         if let Some(bloom_filter) = bloom_filters[row_group_idx][column_idx].take() {

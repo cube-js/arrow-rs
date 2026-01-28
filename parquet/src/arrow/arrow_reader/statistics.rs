@@ -1139,6 +1139,11 @@ where
             .iter()
             .map(|x| x.null_count.map(|x| x as u64))
             .collect::<Vec<_>>(),
+        Index::INT96(native_index) => native_index
+            .indexes
+            .iter()
+            .map(|x| x.null_count.map(|x| x as u64))
+            .collect::<Vec<_>>(),
         Index::FLOAT(native_index) => native_index
             .indexes
             .iter()
