@@ -1051,7 +1051,15 @@ fn write_leaf(writer: &mut ColumnWriter<'_>, levels: &ArrayLevels) -> Result<usi
                 let array = column.as_primitive::<Decimal128Type>();
                 let int96_values: Vec<Int96> =
                     array.values().iter().map(|v| i128_to_int96(*v)).collect();
-                typed.write_batch(&int96_values, levels.def_levels(), levels.rep_levels())
+                typed.write_batch_internal(
+                    &int96_values,
+                    Some(levels.non_null_indices()),
+                    levels.def_levels(),
+                    levels.rep_levels(),
+                    None,
+                    None,
+                    None,
+                )
             }
             _ => unreachable!("INT96 column writer only supports Decimal128 for Decimal96"),
         },
