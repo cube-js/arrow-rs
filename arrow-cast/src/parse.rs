@@ -156,6 +156,8 @@ impl TimestampParser {
 /// * `1997-01-31 09:26:56`             # close to RCF3339, no fractional seconds
 /// * `1997-01-31 092656`               # close to RCF3339, no fractional seconds
 /// * `1997-01-31 092656+04:00`         # close to RCF3339, no fractional seconds or time separator
+/// * `1997-01-31 09:26:56-05:30:00`    # close to RCF3339, offset with seconds as in PostgreSQL
+/// * `1997-01-31 09:26:56+5:30`        # close to RCF3339, offset fields of any width as in PostgreSQL
 /// * `1997-01-31`                      # close to RCF3339, only date no time
 ///
 /// [IANA timezones] are only supported if the `arrow-array/chrono-tz` feature is enabled
@@ -168,8 +170,6 @@ impl TimestampParser {
 /// Some formats supported by PostgresSql <https://www.postgresql.org/docs/current/datatype-datetime.html#DATATYPE-DATETIME-TIME-TABLE>
 /// are not supported, like
 ///
-/// * "2023-01-01 04:05:06.789 +07:30:00",
-/// * "2023-01-01 040506 +07:30:00",
 /// * "2023-01-01 04:05:06.789 PST",
 ///
 /// [IANA timezones]: https://www.iana.org/time-zones
@@ -218,13 +218,57 @@ pub fn string_to_datetime<T: TimeZone>(timezone: &T, s: &str) -> Result<DateTime
     }
 
     // Parse remainder of string as timezone
-    let parsed_tz: Tz = s[tz_offset..].trim_start().parse()?;
+    let tz = s[tz_offset..].trim_start();
+    if let Some(offset) = parse_colon_offset(tz) {
+        let parsed = offset
+            .from_local_datetime(&datetime)
+            .single()
+            .ok_or_else(|| err("error computing timezone offset"))?;
+        return Ok(parsed.with_timezone(timezone));
+    }
+
+    let parsed_tz: Tz = tz.parse()?;
     let parsed = parsed_tz
         .from_local_datetime(&datetime)
         .single()
         .ok_or_else(|| err("error computing timezone offset"))?;
 
     Ok(parsed.with_timezone(timezone))
+}
+
+/// Parses a `[+-]H:M` or `[+-]H:M:S` offset whose fields each have one or more digits,
+/// such as `+5:30` or `-05:30:00`, as PostgreSQL does. [`Tz`] only accepts `+HH:MM`,
+/// `+HHMM` and `+HH`.
+fn parse_colon_offset(tz: &str) -> Option<FixedOffset> {
+    /// Parses a field of one or more ASCII digits that must be below `limit`
+    fn field(s: &str, limit: i32) -> Option<i32> {
+        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let value = s.bytes().try_fold(0_i32, |acc, b| {
+            acc.checked_mul(10)?.checked_add((b - b'0') as i32)
+        })?;
+        (value < limit).then_some(value)
+    }
+
+    let (sign, fields) = match tz.as_bytes().first()? {
+        b'+' => (1, &tz[1..]),
+        b'-' => (-1, &tz[1..]),
+        _ => return None,
+    };
+
+    let mut fields = fields.split(':');
+    let hours = field(fields.next()?, 24)?;
+    let minutes = field(fields.next()?, 60)?;
+    let seconds = match fields.next() {
+        Some(s) => field(s, 60)?,
+        None => 0,
+    };
+    if fields.next().is_some() {
+        return None;
+    }
+
+    FixedOffset::east_opt(sign * (hours * 60 * 60 + minutes * 60 + seconds))
 }
 
 /// Accepts a string in RFC3339 / ISO8601 standard format and some
@@ -1875,6 +1919,116 @@ mod tests {
             1599590549190855000,
             parse_timestamp("2020-09-08 13:42:29.190855-05:00").unwrap()
         );
+    }
+
+    #[test]
+    fn string_to_timestamp_timezone_offset_variants() -> Result<(), ArrowError> {
+        const BASE: i64 = 1_599_572_549_000_000_000; // 2020-09-08T13:42:29Z
+
+        // `+HH` (postgres-style short offset)
+        assert_eq!(BASE, parse_timestamp("2020-09-08T13:42:29+00")?);
+        assert_eq!(BASE, parse_timestamp("2020-09-08 13:42:29+00")?);
+        assert_eq!(
+            BASE + 5 * 3600 * 1_000_000_000,
+            parse_timestamp("2020-09-08 13:42:29-05")?
+        );
+
+        // `+HH:MM:SS` (postgres-style extended offset)
+        assert_eq!(BASE, parse_timestamp("2020-09-08T13:42:29+00:00:00")?);
+        assert_eq!(BASE, parse_timestamp("2020-09-08 13:42:29+00:00:00")?);
+        assert_eq!(
+            BASE + (5 * 3600 + 30 * 60) * 1_000_000_000,
+            parse_timestamp("2020-09-08 13:42:29-05:30:00")?
+        );
+
+        // `+HHMM` (compact form)
+        assert_eq!(BASE, parse_timestamp("2020-09-08 13:42:29+0000")?);
+        assert_eq!(
+            BASE + (5 * 3600 + 30 * 60) * 1_000_000_000,
+            parse_timestamp("2020-09-08 13:42:29-0530")?
+        );
+
+        // With fractional seconds.
+        assert_eq!(
+            BASE + 190_855_000,
+            parse_timestamp("2020-09-08 13:42:29.190855+00")?
+        );
+        assert_eq!(
+            BASE + 190_855_000,
+            parse_timestamp("2020-09-08 13:42:29.190855+00:00:00")?
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn string_to_timestamp_timezone_offset_with_seconds() {
+        // Non-zero seconds, whitespace before the offset, compact time
+        assert_eq!(
+            1599572549000000000 + (5 * 3600 + 30 * 60 + 15) * 1_000_000_000,
+            parse_timestamp("2020-09-08 13:42:29-05:30:15").unwrap()
+        );
+        assert_eq!(
+            1599572549190855000 - (7 * 3600 + 30 * 60) * 1_000_000_000,
+            parse_timestamp("2020-09-08 13:42:29.190855 +07:30:00").unwrap()
+        );
+        assert_eq!(
+            1599572549000000000 - (7 * 3600 + 30 * 60) * 1_000_000_000,
+            parse_timestamp("2020-09-08 134229 +07:30:00").unwrap()
+        );
+
+        // Like PostgreSQL, the fields of a colon offset may have any number of digits
+        const BASE: i64 = 1_599_572_549_000_000_000; // 2020-09-08T13:42:29Z
+        const SECOND: i64 = 1_000_000_000;
+        let cases = [
+            ("2020-09-08 13:42:29+0:00:00", BASE),
+            ("2020-09-08 13:42:29+00:00:0", BASE),
+            ("2020-09-08 13:42:29+00:00:000", BASE),
+            (
+                "2020-09-08 13:42:29+5:30",
+                BASE - (5 * 3600 + 30 * 60) * SECOND,
+            ),
+            ("2020-09-08 13:42:29-8:00", BASE + 8 * 3600 * SECOND),
+            (
+                "2020-09-08 13:42:29+05:3",
+                BASE - (5 * 3600 + 3 * 60) * SECOND,
+            ),
+            (
+                "2020-09-08 13:42:29+5:30:00",
+                BASE - (5 * 3600 + 30 * 60) * SECOND,
+            ),
+            (
+                "2020-09-08T13:42:29+5:30:00",
+                BASE - (5 * 3600 + 30 * 60) * SECOND,
+            ),
+            (
+                "2020-09-08 13:42:29 -8:00:30",
+                BASE + (8 * 3600 + 30) * SECOND,
+            ),
+        ];
+        for (case, expected) in cases {
+            assert_eq!(parse_timestamp(case).unwrap(), expected, "{case}");
+        }
+
+        // Out of range or malformed offsets are still rejected
+        let cases = [
+            "2020-09-08 13:42:29+24:00:00",
+            "2020-09-08 13:42:29+00:60:00",
+            "2020-09-08 13:42:29+00:00:60",
+            "2020-09-08 13:42:29+24:00",
+            "2020-09-08 13:42:29+0a:00:00",
+            "2020-09-08 13:42:29 00:00:00",
+            "2020-09-08 13:42:29+00-00-00",
+            "2020-09-08 13:42:29+5:+30",
+            "2020-09-08 13:42:29+-5:30",
+            "2020-09-08 13:42:29+5:",
+            "2020-09-08 13:42:29+:30",
+            "2020-09-08 13:42:29+5:30:00:00",
+            "2020-09-08 13:42:29+99999999999:00",
+        ];
+        for case in cases {
+            assert!(string_to_datetime(&Utc, case).is_err(), "{case}");
+        }
     }
 
     #[test]

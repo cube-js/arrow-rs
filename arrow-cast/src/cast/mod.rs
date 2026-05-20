@@ -10160,6 +10160,8 @@ mod tests {
                 "2023-01-01 04:05:06.789 -08:00",
                 "2023-01-01 040506 +0730",
                 "2023-01-01 040506 +07:30",
+                "2023-01-01 04:05:06.789 -08:00:00",
+                "2023-01-01 040506 +07:30:00",
                 "2023-01-01 04:05:06.789",
                 "2023-01-01 04:05:06",
                 "2023-01-01",
@@ -10190,7 +10192,7 @@ mod tests {
 
             // Absolute timestamps should be parsed preserving the same UTC instant
             assert_eq!(
-                &utc_results[..6],
+                &utc_results[..8],
                 &[
                     "2023-01-01 12:05:06.789".to_string(),
                     "2023-01-01 11:05:06.789".to_string(),
@@ -10198,11 +10200,13 @@ mod tests {
                     "2023-01-01 12:05:06.789".to_string(),
                     "2022-12-31 20:35:06".to_string(),
                     "2022-12-31 20:35:06".to_string(),
+                    "2023-01-01 12:05:06.789".to_string(),
+                    "2022-12-31 20:35:06".to_string(),
                 ]
             );
             // Non-absolute timestamps should be parsed preserving the same local instant
             assert_eq!(
-                &local_results[6..],
+                &local_results[8..],
                 &[
                     "2023-01-01 04:05:06.789".to_string(),
                     "2023-01-01 04:05:06".to_string(),

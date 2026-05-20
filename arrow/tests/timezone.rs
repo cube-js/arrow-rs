@@ -38,6 +38,11 @@ fn test_parse_timezone() {
             "2023-01-01T12:05:06.789+00:00",
         ),
         (
+            "2023-01-01 04:05:06.789 +07:30:00",
+            "2022-12-31T20:35:06.789+00:00",
+        ),
+        ("2023-01-01 040506 -08:00:30", "2023-01-01T12:05:36+00:00"),
+        (
             "2023-03-12 040506 America/Los_Angeles",
             "2023-03-12T11:05:06+00:00",
         ), // Daylight savings
@@ -57,8 +62,8 @@ fn test_parse_timezone_invalid() {
             "Parser error: Invalid timezone \"-24:00\": failed to parse timezone",
         ),
         (
-            "2023-01-01 04:05:06.789 +07:30:00",
-            "Parser error: Invalid timezone \"+07:30:00\": failed to parse timezone",
+            "2023-01-01 04:05:06.789 +24:00:00",
+            "Parser error: Invalid timezone \"+24:00:00\": failed to parse timezone",
         ),
         (
             // Sunday, 12 March 2023, 02:00:00 clocks are turned forward 1 hour to
