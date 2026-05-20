@@ -93,6 +93,14 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
         return Ok(ts.timestamp_nanos());
     }
 
+    // Try to split off a trailing timezone offset and parse it manually.
+    // Covers variants chrono's format specifiers don't accept on parse,
+    // such as `+HH`, `+HHMM`, and `+HH:MM:SS` (chrono's `%:z`/`%::z`/`%:::z`
+    // all only parse `+HH:MM`).
+    if let Some(ts) = parse_timestamp_with_manual_offset(s) {
+        return Ok(ts);
+    }
+
     // Support timestamps without an explicit timezone offset, again
     // to be compatible with what Apache Spark SQL does.
 
@@ -131,6 +139,88 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
         "Error parsing '{}' as timestamp",
         s
     )))
+}
+
+/// Parse a timezone offset suffix as a chrono `FixedOffset`.
+///
+/// Accepts: `Z`, `+HH`, `-HH`, `+HHMM`, `-HHMM`, `+HH:MM`, `-HH:MM`,
+/// `+HH:MM:SS`, `-HH:MM:SS`. Returns `None` for any other shape.
+fn parse_fixed_offset(s: &str) -> Option<FixedOffset> {
+    if s == "Z" {
+        return FixedOffset::east_opt(0);
+    }
+    let sign: i32 = match s.as_bytes().first()? {
+        b'+' => 1,
+        b'-' => -1,
+        _ => return None,
+    };
+    let body = &s[1..];
+    let (h, m, sec) = if body.contains(':') {
+        let mut parts = body.split(':');
+        let h = parts.next()?.parse::<i32>().ok()?;
+        let m = parts.next()?.parse::<i32>().ok()?;
+        let sec = match parts.next() {
+            Some(p) => p.parse::<i32>().ok()?,
+            None => 0,
+        };
+        if parts.next().is_some() {
+            return None;
+        }
+        (h, m, sec)
+    } else {
+        match body.len() {
+            2 => (body.parse::<i32>().ok()?, 0, 0),
+            4 => (
+                body[..2].parse::<i32>().ok()?,
+                body[2..].parse::<i32>().ok()?,
+                0,
+            ),
+            _ => return None,
+        }
+    };
+    if !(0..24).contains(&h) || !(0..60).contains(&m) || !(0..60).contains(&sec) {
+        return None;
+    }
+    FixedOffset::east_opt(sign * (h * 3600 + m * 60 + sec))
+}
+
+/// Find a trailing timezone offset (if any) and split the string into
+/// `(datetime_part, FixedOffset)`. The offset starts at the last `+`, `-`,
+/// or `Z` that appears after the date portion (index >= 11). Returns
+/// `None` if no plausible offset suffix is found or it fails to parse.
+fn split_timestamp_offset(s: &str) -> Option<(&str, FixedOffset)> {
+    if let Some(stripped) = s.strip_suffix('Z') {
+        return Some((stripped, FixedOffset::east_opt(0)?));
+    }
+    let bytes = s.as_bytes();
+    // Date prefix is `YYYY-MM-DD` (10 chars) + separator, so an offset
+    // sign must appear at index >= 11 to not collide with date `-`.
+    for i in (11..bytes.len()).rev() {
+        match bytes[i] {
+            b'+' | b'-' => {
+                let offset = parse_fixed_offset(&s[i..])?;
+                return Some((&s[..i], offset));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn parse_timestamp_with_manual_offset(s: &str) -> Option<i64> {
+    let (datetime_part, offset) = split_timestamp_offset(s)?;
+    for fmt in &[
+        "%Y-%m-%dT%H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%d %H:%M:%S",
+    ] {
+        if let Ok(naive) = NaiveDateTime::parse_from_str(datetime_part, fmt) {
+            let dt = offset.from_local_datetime(&naive).single()?;
+            return Some(dt.timestamp_nanos());
+        }
+    }
+    None
 }
 
 /// Converts the naive datetime (which has no specific timezone) to a
@@ -404,6 +494,46 @@ mod tests {
             1599590549190855000,
             parse_timestamp("2020-09-08T13:42:29.190855-05:00")?
         );
+        Ok(())
+    }
+
+    #[test]
+    fn string_to_timestamp_timezone_offset_variants() -> Result<()> {
+        const BASE: i64 = 1_599_572_549_000_000_000; // 2020-09-08T13:42:29Z
+
+        // `+HH` (postgres-style short offset)
+        assert_eq!(BASE, parse_timestamp("2020-09-08T13:42:29+00")?);
+        assert_eq!(BASE, parse_timestamp("2020-09-08 13:42:29+00")?);
+        assert_eq!(
+            BASE + 5 * 3600 * 1_000_000_000,
+            parse_timestamp("2020-09-08 13:42:29-05")?
+        );
+
+        // `+HH:MM:SS` (postgres-style extended offset)
+        assert_eq!(BASE, parse_timestamp("2020-09-08T13:42:29+00:00:00")?);
+        assert_eq!(BASE, parse_timestamp("2020-09-08 13:42:29+00:00:00")?);
+        assert_eq!(
+            BASE + (5 * 3600 + 30 * 60) * 1_000_000_000,
+            parse_timestamp("2020-09-08 13:42:29-05:30:00")?
+        );
+
+        // `+HHMM` (compact form)
+        assert_eq!(BASE, parse_timestamp("2020-09-08 13:42:29+0000")?);
+        assert_eq!(
+            BASE + (5 * 3600 + 30 * 60) * 1_000_000_000,
+            parse_timestamp("2020-09-08 13:42:29-0530")?
+        );
+
+        // With fractional seconds.
+        assert_eq!(
+            BASE + 190_855_000,
+            parse_timestamp("2020-09-08 13:42:29.190855+00")?
+        );
+        assert_eq!(
+            BASE + 190_855_000,
+            parse_timestamp("2020-09-08 13:42:29.190855+00:00:00")?
+        );
+
         Ok(())
     }
 
