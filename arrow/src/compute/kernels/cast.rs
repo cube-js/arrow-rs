@@ -3043,7 +3043,8 @@ mod tests {
     fn test_cast_utf8_to_i32() {
         let a = StringArray::from(vec!["5", "6", "seven", "8", "9.1"]);
         let array = Arc::new(a) as ArrayRef;
-        let b = cast(&array, &DataType::Int32).unwrap();
+        let b =
+            cast_with_options(&array, &DataType::Int32, &DEFAULT_CAST_OPTIONS).unwrap();
         let c = b.as_any().downcast_ref::<Int32Array>().unwrap();
         assert_eq!(5, c.value(0));
         assert_eq!(6, c.value(1));
@@ -3073,7 +3074,9 @@ mod tests {
         let strings = Arc::new(StringArray::from(vec![
             "true", "false", "invalid", " Y ", "",
         ])) as ArrayRef;
-        let casted = cast(&strings, &DataType::Boolean).unwrap();
+        let casted =
+            cast_with_options(&strings, &DataType::Boolean, &DEFAULT_CAST_OPTIONS)
+                .unwrap();
         let expected =
             BooleanArray::from(vec![Some(true), Some(false), None, Some(true), None]);
         assert_eq!(*as_boolean_array(&casted), expected);
@@ -3257,8 +3260,12 @@ mod tests {
             None,
         ])) as ArrayRef;
         for array in &[a1, a2] {
-            let b =
-                cast(array, &DataType::Timestamp(TimeUnit::Nanosecond, None)).unwrap();
+            let b = cast_with_options(
+                array,
+                &DataType::Timestamp(TimeUnit::Nanosecond, None),
+                &DEFAULT_CAST_OPTIONS,
+            )
+            .unwrap();
             let c = b
                 .as_any()
                 .downcast_ref::<TimestampNanosecondArray>()
@@ -3284,7 +3291,8 @@ mod tests {
             None,
         ])) as ArrayRef;
         for array in &[a1, a2] {
-            let b = cast(array, &DataType::Date32).unwrap();
+            let b = cast_with_options(array, &DataType::Date32, &DEFAULT_CAST_OPTIONS)
+                .unwrap();
             let c = b.as_any().downcast_ref::<Date32Array>().unwrap();
             assert_eq!(17890, c.value(0));
             assert_eq!(17891, c.value(1));
@@ -3306,7 +3314,8 @@ mod tests {
             None,
         ])) as ArrayRef;
         for array in &[a1, a2] {
-            let b = cast(array, &DataType::Date64).unwrap();
+            let b = cast_with_options(array, &DataType::Date64, &DEFAULT_CAST_OPTIONS)
+                .unwrap();
             let c = b.as_any().downcast_ref::<Date64Array>().unwrap();
             assert_eq!(1599566400000, c.value(0));
             assert!(c.is_null(1));
@@ -5026,7 +5035,8 @@ mod tests {
             "2000",                // just a year is invalid
         ]);
         let array = Arc::new(a) as ArrayRef;
-        let b = cast(&array, &DataType::Date32).unwrap();
+        let b =
+            cast_with_options(&array, &DataType::Date32, &DEFAULT_CAST_OPTIONS).unwrap();
         let c = b.as_any().downcast_ref::<Date32Array>().unwrap();
 
         // test valid inputs
@@ -5067,7 +5077,8 @@ mod tests {
             "2000-01-01",          // just a date is invalid
         ]);
         let array = Arc::new(a) as ArrayRef;
-        let b = cast(&array, &DataType::Date64).unwrap();
+        let b =
+            cast_with_options(&array, &DataType::Date64, &DEFAULT_CAST_OPTIONS).unwrap();
         let c = b.as_any().downcast_ref::<Date64Array>().unwrap();
 
         // test valid inputs
@@ -5097,7 +5108,8 @@ mod tests {
         for array in get_arrays_of_all_types() {
             for to_type in &all_types {
                 println!("Test casting {:?} --> {:?}", array.data_type(), to_type);
-                let cast_result = cast(&array, to_type);
+                let cast_result =
+                    cast_with_options(&array, to_type, &DEFAULT_CAST_OPTIONS);
                 let reported_cast_ability = can_cast_types(array.data_type(), to_type);
 
                 // check for mismatch
