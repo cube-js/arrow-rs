@@ -8670,7 +8670,9 @@ mod tests {
         assert_eq!(946728000000, c.value(0));
         assert!(c.is_valid(1)); // "2020-12-15T12:34:56"
         assert_eq!(1608035696000, c.value(1));
-        assert!(!c.is_valid(2)); // "2020-2-2T12:34:56"
+        // Fields without leading zeros are valid, as in PostgreSQL
+        assert!(c.is_valid(2)); // "2020-2-2T12:34:56"
+        assert_eq!(1580646896000, c.value(2));
 
         assert!(!c.is_valid(3)); // "2000-00-00T12:00:00"
         assert!(c.is_valid(4)); // "2000-01-01 12:00:00"

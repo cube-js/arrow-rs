@@ -164,6 +164,10 @@ impl TimestampParser {
 ///
 /// * `2023-01-01 040506 America/Los_Angeles`
 ///
+/// As in PostgreSQL, a string that the formats above do not match may also have whitespace
+/// around it, more than one space between the date and the time, and a month, day, hour,
+/// minute or second of one digit, such as ` 2023-1-1  4:05:06.789 America/Los_Angeles`
+///
 /// If a timestamp is ambiguous, for example as a result of daylight-savings time, an error
 /// will be returned
 ///
@@ -174,6 +178,12 @@ impl TimestampParser {
 ///
 /// [IANA timezones]: https://www.iana.org/time-zones
 pub fn string_to_datetime<T: TimeZone>(timezone: &T, s: &str) -> Result<DateTime<T>, ArrowError> {
+    string_to_datetime_fixed(timezone, s)
+        .or_else(|e| string_to_datetime_lenient(timezone, s).ok_or(e))
+}
+
+/// The fast path of [`string_to_datetime`], which reads the date and time at fixed positions
+fn string_to_datetime_fixed<T: TimeZone>(timezone: &T, s: &str) -> Result<DateTime<T>, ArrowError> {
     let err =
         |ctx: &str| ArrowError::ParseError(format!("Error parsing timestamp from '{s}': {ctx}"));
 
@@ -234,6 +244,40 @@ pub fn string_to_datetime<T: TimeZone>(timezone: &T, s: &str) -> Result<DateTime
         .ok_or_else(|| err("error computing timezone offset"))?;
 
     Ok(parsed.with_timezone(timezone))
+}
+
+/// Splits a timestamp string into its wall-clock reading and the zone written after it,
+/// reading the date and time with chrono rather than at fixed positions. This accepts what
+/// [`string_to_datetime_fixed`] rejects but PostgreSQL accepts: whitespace around the string,
+/// more than one space between the date and the time, and a month, day, hour, minute or
+/// second of one digit, such as ` 2026-6-15  1:42:29 America/Los_Angeles`.
+fn lenient_local_datetime(s: &str) -> Option<(NaiveDateTime, &str)> {
+    let s = s.trim();
+    ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M:%S%.f"]
+        .iter()
+        .find_map(|format| NaiveDateTime::parse_and_remainder(s, format).ok())
+}
+
+/// The fallback of [`string_to_datetime`] for what [`lenient_local_datetime`] accepts,
+/// with the same zones as the fast path: none, `Z`, an offset or an IANA timezone
+fn string_to_datetime_lenient<T: TimeZone>(timezone: &T, s: &str) -> Option<DateTime<T>> {
+    let (datetime, zone) = lenient_local_datetime(s)?;
+    let zone = zone.trim_start();
+    if zone.is_empty() {
+        return timezone.from_local_datetime(&datetime).single();
+    }
+    if zone.eq_ignore_ascii_case("z") {
+        return Some(timezone.from_utc_datetime(&datetime));
+    }
+
+    let parsed = match parse_colon_offset(zone) {
+        Some(offset) => offset.from_local_datetime(&datetime).single()?.naive_utc(),
+        None => {
+            let tz: Tz = zone.parse().ok()?;
+            tz.from_local_datetime(&datetime).single()?.naive_utc()
+        }
+    };
+    Some(timezone.from_utc_datetime(&parsed))
 }
 
 /// Parses a `[+-]H:M` or `[+-]H:M:S` offset whose fields each have one or more digits,
@@ -767,7 +811,9 @@ fn parse_date(string: &str) -> Option<NaiveDate> {
         // Try to parse as datetime and return just the date part as written. Like
         // PostgreSQL, an offset or timezone must be valid but does not move the date.
         string_to_datetime(&Utc, string).ok()?;
-        return TimestampParser::new(string.as_bytes()).date();
+        return TimestampParser::new(string.as_bytes())
+            .date()
+            .or_else(|| lenient_local_datetime(string).map(|(datetime, _)| datetime.date()));
     }
     let mut digits = [0; 10];
     let mut mask = 0;
@@ -2149,19 +2195,23 @@ mod tests {
             ("SS", "timestamp must contain at least 10 characters"),
             ("Wed, 18 Feb 2015 23:16:09 GMT", "error parsing date"),
             ("1997-01-31H09:26:56.123Z", "invalid timestamp separator"),
-            ("1997-01-31  09:26:56.123Z", "error parsing time"),
             ("1997:01:31T09:26:56.123Z", "error parsing date"),
             ("1997:1:31T09:26:56.123Z", "error parsing date"),
             ("1997-01-32T09:26:56.123Z", "error parsing date"),
             ("1997-13-32T09:26:56.123Z", "error parsing date"),
             ("1997-02-29T09:26:56.123Z", "error parsing date"),
             ("2015-02-30T17:35:20-08:00", "error parsing date"),
-            ("1997-01-10T9:26:56.123Z", "error parsing time"),
             ("2015-01-20T25:35:20-08:00", "error parsing time"),
             ("1997-01-10T09:61:56.123Z", "error parsing time"),
             ("1997-01-10T09:61:90.123Z", "error parsing time"),
-            ("1997-01-10T12:00:6.123Z", "error parsing time"),
             ("1997-01-31T092656.123Z", "error parsing time"),
+            ("1997-01-31T09:26", "error parsing time"),
+            ("2020-9-8 25:00:00", "error parsing date"),
+            ("2026-6-15 13:42:29 Not/A_Zone", "error parsing date"),
+            (
+                "2026-03-08 2:30:00 America/Los_Angeles",
+                "error parsing time",
+            ),
             ("1997-01-10T12:00:06.", "error parsing time"),
             ("1997-01-10T12:00:06. ", "error parsing time"),
         ];
@@ -2171,6 +2221,57 @@ mod tests {
             let actual = string_to_datetime(&Utc, s).unwrap_err().to_string();
             assert_eq!(actual, expected)
         }
+    }
+
+    #[test]
+    fn string_to_timestamp_lenient() {
+        // Whitespace around the string or between the date and the time, and fields of
+        // one digit, which PostgreSQL accepts. Each case equals its strict spelling.
+        let cases = [
+            (
+                "2026-6-15 13:42:29 America/Los_Angeles",
+                "2026-06-15 13:42:29 America/Los_Angeles",
+            ),
+            (
+                "2026-06-15 1:42:29 America/Los_Angeles",
+                "2026-06-15 01:42:29 America/Los_Angeles",
+            ),
+            (
+                "2026-06-15  13:42:29 America/Los_Angeles",
+                "2026-06-15 13:42:29 America/Los_Angeles",
+            ),
+            (
+                " 2026-06-15 13:42:29 America/Los_Angeles",
+                "2026-06-15 13:42:29 America/Los_Angeles",
+            ),
+            (
+                "2026-06-15 13:42:29 America/Los_Angeles ",
+                "2026-06-15 13:42:29 America/Los_Angeles",
+            ),
+            ("2020-9-8 01:02:03", "2020-09-08 01:02:03"),
+            ("2020-9-8T1:2:3.5", "2020-09-08T01:02:03.5"),
+            ("2020-9-8 1:2:3+5:30", "2020-09-08 01:02:03+05:30"),
+            ("2020-9-8 1:2:3 Z", "2020-09-08 01:02:03Z"),
+            ("1997-01-31  09:26:56.123Z", "1997-01-31 09:26:56.123Z"),
+            ("1997-01-10T9:26:56.123Z", "1997-01-10T09:26:56.123Z"),
+            ("1997-01-10T12:00:6.123Z", "1997-01-10T12:00:06.123Z"),
+        ];
+        for (lenient, strict) in cases {
+            assert_eq!(
+                parse_timestamp(lenient).unwrap(),
+                parse_timestamp(strict).unwrap(),
+                "{lenient}"
+            );
+        }
+        assert_eq!(
+            parse_timestamp("2026-6-15 13:42:29 America/Los_Angeles").unwrap(),
+            1_781_556_149_000_000_000
+        );
+
+        // Without a zone, the string is a wall-clock reading in the given timezone
+        let tz: Tz = "+02:00".parse().unwrap();
+        let date = string_to_datetime(&tz, " 2020-9-8  13:42:29").unwrap();
+        assert_eq!(date.naive_local().to_string(), "2020-09-08 13:42:29");
     }
 
     // Parse a timestamp to timestamp int with a useful human readable error message
@@ -2256,6 +2357,8 @@ mod tests {
             "2020-12-1",
             "1690-2-5",
             "2020-09-08 01:02:03",
+            "2020-9-8 01:02:03",
+            " 2020-09-08 1:2:3",
         ];
         for case in cases {
             let v = date32_to_datetime(Date32Type::parse(case).unwrap()).unwrap();
@@ -2292,8 +2395,6 @@ mod tests {
             "2020-09-08 01",
             "2020-09-08 01:02",
             "2020-09-08 01-02-03",
-            "2020-9-8 01:02:03",
-            "2020-09-08 1:2:3",
             "2020/09-08",
             "2020-09/08",
             "2020|09/08",
