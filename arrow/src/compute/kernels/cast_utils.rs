@@ -101,6 +101,12 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
         return Ok(ts);
     }
 
+    // Try to parse a trailing IANA timezone name, e.g.
+    // `2026-06-15 00:00:00 America/Los_Angeles`, which PostgreSQL accepts.
+    if let Some(ts) = parse_timestamp_with_named_tz(s) {
+        return Ok(ts);
+    }
+
     // Support timestamps without an explicit timezone offset, again
     // to be compatible with what Apache Spark SQL does.
 
@@ -220,6 +226,38 @@ fn parse_timestamp_with_manual_offset(s: &str) -> Option<i64> {
             return Some(dt.timestamp_nanos());
         }
     }
+    None
+}
+
+/// Try to parse a timestamp with a trailing IANA timezone name, such as
+/// `2026-06-15 00:00:00 America/Los_Angeles`. The timezone name is the
+/// whitespace-separated token after the time component and is resolved
+/// against `chrono-tz`. The wall-clock time is interpreted in that
+/// timezone and converted to a UTC nanosecond timestamp.
+///
+/// Returns `None` if the `chrono-tz` feature is disabled, no trailing
+/// name is present, the name does not resolve, or the datetime part does
+/// not parse.
+#[cfg(feature = "chrono-tz")]
+fn parse_timestamp_with_named_tz(s: &str) -> Option<i64> {
+    let (datetime_part, tz_name) = s.rsplit_once(' ')?;
+    let tz: chrono_tz::Tz = tz_name.parse().ok()?;
+    for fmt in &[
+        "%Y-%m-%dT%H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%d %H:%M:%S",
+    ] {
+        if let Ok(naive) = NaiveDateTime::parse_from_str(datetime_part, fmt) {
+            let dt = tz.from_local_datetime(&naive).single()?;
+            return Some(dt.timestamp_nanos());
+        }
+    }
+    None
+}
+
+#[cfg(not(feature = "chrono-tz"))]
+fn parse_timestamp_with_named_tz(_s: &str) -> Option<i64> {
     None
 }
 
@@ -555,6 +593,37 @@ mod tests {
         assert_eq!(
             1599590549190855000,
             parse_timestamp("2020-09-08 13:42:29.190855-05:00")?
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "chrono-tz")]
+    #[test]
+    fn string_to_timestamp_named_timezone() -> Result<()> {
+        // A trailing IANA timezone name is resolved and the wall-clock time
+        // converted to a UTC instant. `America/Los_Angeles` is UTC-7 (PDT)
+        // in June, so 13:42:29 local is 20:42:29 UTC. PostgreSQL accepts this
+        // trailing IANA tz name.
+        const UTC: i64 = 1_781_556_149_000_000_000; // 2026-06-15T20:42:29Z
+
+        assert_eq!(
+            UTC,
+            parse_timestamp("2026-06-15 13:42:29 America/Los_Angeles")?
+        );
+        // `T` separator is also accepted.
+        assert_eq!(
+            UTC,
+            parse_timestamp("2026-06-15T13:42:29 America/Los_Angeles")?
+        );
+        // Fractional seconds with a named timezone.
+        assert_eq!(
+            UTC + 190_855_000,
+            parse_timestamp("2026-06-15 13:42:29.190855 America/Los_Angeles")?
+        );
+        // UTC named timezone leaves the wall-clock time unchanged.
+        assert_eq!(
+            1_781_530_949_000_000_000, // 2026-06-15T13:42:29Z
+            parse_timestamp("2026-06-15 13:42:29 UTC")?
         );
         Ok(())
     }
