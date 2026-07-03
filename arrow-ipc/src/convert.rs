@@ -64,6 +64,7 @@ use DataType::*;
 #[derive(Debug)]
 pub struct IpcSchemaEncoder<'a> {
     dictionary_tracker: Option<&'a mut DictionaryTracker>,
+    standard_decimal_bit_width: bool,
 }
 
 impl Default for IpcSchemaEncoder<'_> {
@@ -77,6 +78,7 @@ impl<'a> IpcSchemaEncoder<'a> {
     pub fn new() -> IpcSchemaEncoder<'a> {
         IpcSchemaEncoder {
             dictionary_tracker: None,
+            standard_decimal_bit_width: false,
         }
     }
 
@@ -86,6 +88,14 @@ impl<'a> IpcSchemaEncoder<'a> {
         dictionary_tracker: &'a mut DictionaryTracker,
     ) -> Self {
         self.dictionary_tracker = Some(dictionary_tracker);
+        self
+    }
+
+    /// Cube: write `Decimal128` fields with the standard `bitWidth` of 128
+    /// instead of the CubeStore backward-compatible 64/96 markers used for
+    /// precision <= 27 (see `IpcWriteOptions::with_standard_decimal_bit_width`)
+    pub fn with_standard_decimal_bit_width(mut self, standard_decimal_bit_width: bool) -> Self {
+        self.standard_decimal_bit_width = standard_decimal_bit_width;
         self
     }
 
@@ -111,7 +121,14 @@ impl<'a> IpcSchemaEncoder<'a> {
         let fields = schema
             .fields()
             .iter()
-            .map(|field| build_field(fbb, &mut self.dictionary_tracker, field))
+            .map(|field| {
+                build_field(
+                    fbb,
+                    &mut self.dictionary_tracker,
+                    field,
+                    self.standard_decimal_bit_width,
+                )
+            })
             .collect::<Vec<_>>();
         let fb_field_list = fbb.create_vector(&fields);
 
@@ -506,6 +523,7 @@ pub(crate) fn build_field<'a>(
     fbb: &mut FlatBufferBuilder<'a>,
     dictionary_tracker: &mut Option<&mut DictionaryTracker>,
     field: &Field,
+    standard_decimal_bit_width: bool,
 ) -> WIPOffset<crate::Field<'a>> {
     // Optional custom metadata.
     let mut fb_metadata = None;
@@ -514,7 +532,12 @@ pub(crate) fn build_field<'a>(
     };
 
     let fb_field_name = fbb.create_string(field.name().as_str());
-    let field_type = get_fb_field_type(field.data_type(), dictionary_tracker, fbb);
+    let field_type = get_fb_field_type(
+        field.data_type(),
+        dictionary_tracker,
+        fbb,
+        standard_decimal_bit_width,
+    );
 
     let fb_dictionary = if let Dictionary(index_type, _) = field.data_type() {
         match dictionary_tracker {
@@ -568,6 +591,7 @@ pub(crate) fn get_fb_field_type<'a>(
     data_type: &DataType,
     dictionary_tracker: &mut Option<&mut DictionaryTracker>,
     fbb: &mut FlatBufferBuilder<'a>,
+    standard_decimal_bit_width: bool,
 ) -> FBFieldType<'a> {
     // some IPC implementations expect an empty list for child data, instead of a null value.
     // An empty field list is thus returned for primitive types
@@ -767,7 +791,12 @@ pub(crate) fn get_fb_field_type<'a>(
             }
         }
         List(ref list_type) => {
-            let child = build_field(fbb, dictionary_tracker, list_type);
+            let child = build_field(
+                fbb,
+                dictionary_tracker,
+                list_type,
+                standard_decimal_bit_width,
+            );
             FBFieldType {
                 type_type: crate::Type::List,
                 type_: crate::ListBuilder::new(fbb).finish().as_union_value(),
@@ -776,7 +805,12 @@ pub(crate) fn get_fb_field_type<'a>(
         }
         ListView(_) | LargeListView(_) => unimplemented!("ListView/LargeListView not implemented"),
         LargeList(ref list_type) => {
-            let child = build_field(fbb, dictionary_tracker, list_type);
+            let child = build_field(
+                fbb,
+                dictionary_tracker,
+                list_type,
+                standard_decimal_bit_width,
+            );
             FBFieldType {
                 type_type: crate::Type::LargeList,
                 type_: crate::LargeListBuilder::new(fbb).finish().as_union_value(),
@@ -784,7 +818,12 @@ pub(crate) fn get_fb_field_type<'a>(
             }
         }
         FixedSizeList(ref list_type, len) => {
-            let child = build_field(fbb, dictionary_tracker, list_type);
+            let child = build_field(
+                fbb,
+                dictionary_tracker,
+                list_type,
+                standard_decimal_bit_width,
+            );
             let mut builder = crate::FixedSizeListBuilder::new(fbb);
             builder.add_listSize(*len);
             FBFieldType {
@@ -797,7 +836,12 @@ pub(crate) fn get_fb_field_type<'a>(
             // struct's fields are children
             let mut children = vec![];
             for field in fields {
-                children.push(build_field(fbb, dictionary_tracker, field));
+                children.push(build_field(
+                    fbb,
+                    dictionary_tracker,
+                    field,
+                    standard_decimal_bit_width,
+                ));
             }
             FBFieldType {
                 type_type: crate::Type::Struct_,
@@ -806,8 +850,14 @@ pub(crate) fn get_fb_field_type<'a>(
             }
         }
         RunEndEncoded(run_ends, values) => {
-            let run_ends_field = build_field(fbb, dictionary_tracker, run_ends);
-            let values_field = build_field(fbb, dictionary_tracker, values);
+            let run_ends_field = build_field(
+                fbb,
+                dictionary_tracker,
+                run_ends,
+                standard_decimal_bit_width,
+            );
+            let values_field =
+                build_field(fbb, dictionary_tracker, values, standard_decimal_bit_width);
             let children = [run_ends_field, values_field];
             FBFieldType {
                 type_type: crate::Type::RunEndEncoded,
@@ -818,7 +868,12 @@ pub(crate) fn get_fb_field_type<'a>(
             }
         }
         Map(map_field, keys_sorted) => {
-            let child = build_field(fbb, dictionary_tracker, map_field);
+            let child = build_field(
+                fbb,
+                dictionary_tracker,
+                map_field,
+                standard_decimal_bit_width,
+            );
             let mut field_type = crate::MapBuilder::new(fbb);
             field_type.add_keysSorted(*keys_sorted);
             FBFieldType {
@@ -831,13 +886,24 @@ pub(crate) fn get_fb_field_type<'a>(
             // In this library, the dictionary "type" is a logical construct. Here we
             // pass through to the value type, as we've already captured the index
             // type in the DictionaryEncoding metadata in the parent field
-            get_fb_field_type(value_type, dictionary_tracker, fbb)
+            get_fb_field_type(
+                value_type,
+                dictionary_tracker,
+                fbb,
+                standard_decimal_bit_width,
+            )
         }
         Decimal128(precision, scale) => {
             let mut builder = crate::DecimalBuilder::new(fbb);
             builder.add_precision(*precision as i32);
             builder.add_scale(*scale as i32);
-            let bit_width = if *precision > 1 && *precision <= 18 {
+            // Cube: advertise 64/96 for precision <= 27 so older CubeStore
+            // versions (with dedicated Int64Decimal/Int96Decimal types) can
+            // read parquet-embedded schemas and inter-node IPC. Buffers stay
+            // 16 bytes per value, so standard readers need the honest width.
+            let bit_width = if standard_decimal_bit_width {
+                128
+            } else if *precision > 1 && *precision <= 18 {
                 64
             } else if *precision <= 27 {
                 96
@@ -865,7 +931,12 @@ pub(crate) fn get_fb_field_type<'a>(
         Union(fields, mode) => {
             let mut children = vec![];
             for (_, field) in fields.iter() {
-                children.push(build_field(fbb, dictionary_tracker, field));
+                children.push(build_field(
+                    fbb,
+                    dictionary_tracker,
+                    field,
+                    standard_decimal_bit_width,
+                ));
             }
 
             let union_mode = match mode {
@@ -965,6 +1036,57 @@ impl MessageBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Cube: reads `(precision, scale, bitWidth)` of every decimal field in a
+    /// serialized schema flatbuffer.
+    fn decimal_fields_in_fb(fbb: &FlatBufferBuilder<'_>) -> Vec<(i32, i32, i32)> {
+        let ipc = crate::root_as_schema(fbb.finished_data()).unwrap();
+        ipc.fields()
+            .unwrap()
+            .iter()
+            .map(|field| {
+                let decimal = field.type_as_decimal().unwrap();
+                (decimal.precision(), decimal.scale(), decimal.bitWidth())
+            })
+            .collect()
+    }
+
+    /// Cube: by default Decimal128 fields with precision <= 27 advertise the
+    /// backward-compatible bitWidth 64/96 (readable by older CubeStore nodes),
+    /// while `with_standard_decimal_bit_width(true)` emits the standard 128
+    /// for consumers using standard Arrow implementations.
+    #[test]
+    fn schema_decimal_bit_width_compat_and_standard_modes() {
+        let schema = Schema::new(vec![
+            Field::new("d18", DataType::Decimal128(18, 2), true),
+            Field::new("d20", DataType::Decimal128(20, 3), true),
+            Field::new("d38", DataType::Decimal128(38, 0), true),
+        ]);
+
+        let fbb = IpcSchemaEncoder::new().schema_to_fb(&schema);
+        assert_eq!(
+            decimal_fields_in_fb(&fbb),
+            vec![(18, 2, 64), (20, 3, 96), (38, 0, 128)]
+        );
+
+        let fbb = IpcSchemaEncoder::new()
+            .with_standard_decimal_bit_width(true)
+            .schema_to_fb(&schema);
+        assert_eq!(
+            decimal_fields_in_fb(&fbb),
+            vec![(18, 2, 128), (20, 3, 128), (38, 0, 128)]
+        );
+
+        // Both modes deserialize back to the same Decimal128 schema: the
+        // reader accepts 64/96 as Decimal128 markers.
+        for standard in [false, true] {
+            let fbb = IpcSchemaEncoder::new()
+                .with_standard_decimal_bit_width(standard)
+                .schema_to_fb(&schema);
+            let ipc = crate::root_as_schema(fbb.finished_data()).unwrap();
+            assert_eq!(fb_to_schema(ipc), schema);
+        }
+    }
 
     #[test]
     fn convert_schema_round_trip() {

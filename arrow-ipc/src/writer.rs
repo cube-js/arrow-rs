@@ -74,6 +74,20 @@ pub struct IpcWriteOptions {
         note = "The ability to preserve dictionary IDs will be removed. With it, all fields related to it."
     )]
     preserve_dict_id: bool,
+    /// Cube: write the standard `bitWidth` of 128 for `Decimal128` fields.
+    ///
+    /// By default the schema encoder advertises `bitWidth` 64 or 96 for
+    /// `Decimal128` fields with precision <= 27 so that parquet-embedded
+    /// schemas and inter-node IPC stay readable by older CubeStore versions,
+    /// which use dedicated `Int64Decimal`/`Int96Decimal` types (see #48). The
+    /// record batch buffers always hold 16 bytes per value, so standard Arrow
+    /// readers pair the advertised 64-bit width with an 8-byte stride and
+    /// silently mis-read the data (values interleaved with zeros), while
+    /// bitWidth 96 is rejected outright. Enable this for IPC streams consumed
+    /// by standard Arrow implementations.
+    ///
+    /// Defaults to `false`
+    standard_decimal_bit_width: bool,
 }
 
 impl IpcWriteOptions {
@@ -123,6 +137,7 @@ impl IpcWriteOptions {
                 metadata_version,
                 batch_compression_type: None,
                 preserve_dict_id: false,
+                standard_decimal_bit_width: false,
             }),
             crate::MetadataVersion::V5 => {
                 if write_legacy_ipc_format {
@@ -137,6 +152,7 @@ impl IpcWriteOptions {
                         metadata_version,
                         batch_compression_type: None,
                         preserve_dict_id: false,
+                        standard_decimal_bit_width: false,
                     })
                 }
             }
@@ -173,6 +189,25 @@ impl IpcWriteOptions {
         self.preserve_dict_id = preserve_dict_id;
         self
     }
+
+    /// Cube: return whether `Decimal128` fields are written with the standard
+    /// `bitWidth` of 128 instead of the CubeStore backward-compatible 64/96
+    pub fn standard_decimal_bit_width(&self) -> bool {
+        self.standard_decimal_bit_width
+    }
+
+    /// Cube: set whether `Decimal128` fields are written with the standard
+    /// `bitWidth` of 128.
+    ///
+    /// By default (`false`) the schema encoder advertises `bitWidth` 64/96
+    /// for precision <= 27 so older CubeStore versions can read parquet
+    /// files and inter-node IPC. Enable for IPC streams consumed by standard
+    /// Arrow implementations — the buffers are always 16 bytes per value, and
+    /// standard readers mis-stride them when the advertised width is 64.
+    pub fn with_standard_decimal_bit_width(mut self, standard_decimal_bit_width: bool) -> Self {
+        self.standard_decimal_bit_width = standard_decimal_bit_width;
+        self
+    }
 }
 
 impl Default for IpcWriteOptions {
@@ -184,6 +219,7 @@ impl Default for IpcWriteOptions {
             metadata_version: crate::MetadataVersion::V5,
             batch_compression_type: None,
             preserve_dict_id: false,
+            standard_decimal_bit_width: false,
         }
     }
 }
@@ -238,6 +274,7 @@ impl IpcDataGenerator {
         let schema = {
             let fb = IpcSchemaEncoder::new()
                 .with_dictionary_tracker(dictionary_tracker)
+                .with_standard_decimal_bit_width(write_options.standard_decimal_bit_width)
                 .schema_to_fb_offset(&mut fbb, schema);
             fb.as_union_value()
         };
