@@ -167,6 +167,7 @@ impl TimestampParser {
 /// As in PostgreSQL, a string that the formats above do not match may also have whitespace
 /// around it, more than one space between the date and the time, and a month, day, hour,
 /// minute or second of one digit, such as ` 2023-1-1  4:05:06.789 America/Los_Angeles`
+/// or `2023-1-1`
 ///
 /// If a timestamp is ambiguous, for example as a result of daylight-savings time, an error
 /// will be returned
@@ -250,9 +251,13 @@ fn string_to_datetime_fixed<T: TimeZone>(timezone: &T, s: &str) -> Result<DateTi
 /// reading the date and time with chrono rather than at fixed positions. This accepts what
 /// [`string_to_datetime_fixed`] rejects but PostgreSQL accepts: whitespace around the string,
 /// more than one space between the date and the time, and a month, day, hour, minute or
-/// second of one digit, such as ` 2026-6-15  1:42:29 America/Los_Angeles`.
+/// second of one digit, such as ` 2026-6-15  1:42:29 America/Los_Angeles`. A date
+/// without a time, such as `2020-9-8`, is midnight.
 fn lenient_local_datetime(s: &str) -> Option<(NaiveDateTime, &str)> {
     let s = s.trim();
+    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        return Some((date.and_time(NaiveTime::MIN), ""));
+    }
     ["%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M:%S%.f"]
         .iter()
         .find_map(|format| NaiveDateTime::parse_and_remainder(s, format).ok())
@@ -2272,6 +2277,38 @@ mod tests {
         let tz: Tz = "+02:00".parse().unwrap();
         let date = string_to_datetime(&tz, " 2020-9-8  13:42:29").unwrap();
         assert_eq!(date.naive_local().to_string(), "2020-09-08 13:42:29");
+    }
+
+    #[test]
+    fn string_to_timestamp_date_only() {
+        // A date without a time is midnight, in UTC unless a timezone is given, as PostgreSQL
+        // reads date-only timestamp input
+        const MIDNIGHT: i64 = 1_599_523_200_000_000_000; // 2020-09-08T00:00:00Z
+        for s in [
+            "2020-09-08",
+            "2020-9-8",
+            "2020-09-8",
+            "2020-9-08",
+            " 2020-09-08",
+            "2020-09-08 ",
+            "+2020-09-08",
+        ] {
+            assert_eq!(parse_timestamp(s).unwrap(), MIDNIGHT, "{s:?}");
+        }
+
+        let tz: Tz = "+02:00".parse().unwrap();
+        let date = string_to_datetime(&tz, "2020-9-8").unwrap();
+        assert_eq!(date.naive_local().to_string(), "2020-09-08 00:00:00");
+
+        for s in [
+            "2020-9-32",
+            "2020-13-8",
+            "2020-9-8x",
+            "2020/9/8",
+            "20200908",
+        ] {
+            assert!(parse_timestamp(s).is_err(), "{s:?}");
+        }
     }
 
     // Parse a timestamp to timestamp int with a useful human readable error message
