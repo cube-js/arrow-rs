@@ -136,6 +136,13 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
         return naive_datetime_to_timestamp(s, ts);
     }
 
+    // a date with no time component, interpreted as midnight local time.
+    // PostgreSQL accepts date-only strings as timestamp input.
+    // Example: 2020-09-08
+    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        return naive_datetime_to_timestamp(s, date.and_hms(0, 0, 0));
+    }
+
     // Note we don't pass along the error message from the underlying
     // chrono parsing because we tried several different format
     // strings and we don't know which the user was trying to
@@ -683,6 +690,24 @@ mod tests {
         assert_eq!(
             naive_datetime_to_timestamp(&naive_datetime_whole_secs),
             parse_timestamp("2020-09-08 13:42:29")?
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // unsupported operation: can't call foreign function: mktime
+    fn string_to_timestamp_date_only() -> Result<()> {
+        // A date-only string parses as midnight local time, matching
+        // PostgreSQL's behavior for date-only timestamp input
+        let naive_datetime = NaiveDateTime::new(
+            NaiveDate::from_ymd(2020, 9, 8),
+            NaiveTime::from_hms(0, 0, 0),
+        );
+
+        assert_eq!(
+            naive_datetime_to_timestamp(&naive_datetime),
+            parse_timestamp("2020-09-08")?
         );
 
         Ok(())
