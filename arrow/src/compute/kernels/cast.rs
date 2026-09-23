@@ -1243,9 +1243,12 @@ pub fn cast_with_options(
                     &Int64Array::from(vec![from_size / to_size; array.len()]),
                 )?
             } else {
-                multiply(
+                multiply_checked(
                     &time_array,
-                    &Int64Array::from(vec![to_size / from_size; array.len()]),
+                    to_size / from_size,
+                    from_type,
+                    to_type,
+                    cast_options,
                 )?
             };
             let array_ref = Arc::new(converted) as ArrayRef;
@@ -1287,7 +1290,7 @@ pub fn cast_with_options(
             let time_array = numeric_cast::<Int32Type, Int64Type>(&time_array);
             let to_size = time_unit_multiple(to_unit) * SECONDS_IN_DAY;
             let converted =
-                multiply(&time_array, &Int64Array::from(vec![to_size; array.len()]))?;
+                multiply_checked(&time_array, to_size, from_type, to_type, cast_options)?;
             let array_ref = Arc::new(converted) as ArrayRef;
             use TimeUnit::*;
             match to_unit {
@@ -1329,9 +1332,12 @@ pub fn cast_with_options(
                 }
                 std::cmp::Ordering::Greater => {
                     let time_array = Date64Array::from(array.data().clone());
-                    Ok(Arc::new(multiply(
+                    Ok(Arc::new(multiply_checked(
                         &time_array,
-                        &Date64Array::from(vec![to_size / from_size; array.len()]),
+                        to_size / from_size,
+                        from_type,
+                        to_type,
+                        cast_options,
                     )?) as ArrayRef)
                 }
             }
@@ -1391,6 +1397,107 @@ pub fn cast_with_options(
             "Casting from {:?} to {:?} not supported",
             from_type, to_type,
         ))),
+    }
+}
+
+/// Scales a temporal array by `factor` to widen it to a finer unit, which can overflow `i64`.
+/// An overflowing value follows `CastOptions`: `NULL` when `safe`, a `CastError` otherwise.
+fn multiply_checked<T>(
+    array: &PrimitiveArray<T>,
+    factor: i64,
+    from_type: &DataType,
+    to_type: &DataType,
+    cast_options: &CastOptions,
+) -> Result<PrimitiveArray<T>>
+where
+    T: ArrowPrimitiveType<Native = i64>,
+{
+    let values = array.values();
+    let (min, max) = (i64::MIN / factor, i64::MAX / factor);
+    let scaled = if values.iter().all(|value| (min..=max).contains(value)) {
+        values
+            .iter()
+            .map(|value| value * factor)
+            .collect::<Buffer>()
+    } else {
+        match multiply_each_checked(array, factor, from_type, to_type, cast_options)? {
+            Some(scaled) => Buffer::from_slice_ref(&scaled),
+            None => return Ok(multiply_or_null(array, factor)),
+        }
+    };
+    let mut data = ArrayData::builder(T::DATA_TYPE)
+        .len(array.len())
+        .add_buffer(scaled);
+    if let Some(nulls) = array.data().null_buffer() {
+        data = data.null_bit_buffer(nulls.bit_slice(array.offset(), array.len()));
+    }
+    Ok(PrimitiveArray::from(data.build()?))
+}
+
+/// The checked loop behind `multiply_checked`, for an array holding a value that may
+/// overflow. `None` means a `safe` cast overflowed.
+fn multiply_each_checked<T>(
+    array: &PrimitiveArray<T>,
+    factor: i64,
+    from_type: &DataType,
+    to_type: &DataType,
+    cast_options: &CastOptions,
+) -> Result<Option<Vec<i64>>>
+where
+    T: ArrowPrimitiveType<Native = i64>,
+{
+    let mut scaled = Vec::with_capacity(array.len());
+    for (i, value) in array.values().iter().enumerate() {
+        match value.checked_mul(factor) {
+            Some(value) => scaled.push(value),
+            // A null slot holds an arbitrary value, so it can't fail the cast.
+            None if array.is_null(i) => scaled.push(0),
+            None if cast_options.safe => return Ok(None),
+            None => {
+                return Err(ArrowError::CastError(format!(
+                    "Cannot cast {:?} value {} to {:?}: out of range",
+                    from_type,
+                    describe_temporal_value(from_type, *value),
+                    to_type
+                )))
+            }
+        }
+    }
+    Ok(Some(scaled))
+}
+
+/// `multiply_checked` for a `safe` cast that overflows: the overflowing values become `NULL`.
+fn multiply_or_null<T>(array: &PrimitiveArray<T>, factor: i64) -> PrimitiveArray<T>
+where
+    T: ArrowPrimitiveType<Native = i64>,
+{
+    array
+        .iter()
+        .map(|value| value.and_then(|value| value.checked_mul(factor)))
+        .collect()
+}
+
+/// Renders a raw date or timestamp value as the instant it stands for, for an error message.
+fn describe_temporal_value(data_type: &DataType, value: i64) -> String {
+    let (seconds, nanos) = match data_type {
+        DataType::Date32 => (value.saturating_mul(SECONDS_IN_DAY), 0),
+        DataType::Date64 | DataType::Timestamp(TimeUnit::Millisecond, _) => (
+            value.div_euclid(MILLISECONDS),
+            value.rem_euclid(MILLISECONDS) * 1_000_000,
+        ),
+        DataType::Timestamp(TimeUnit::Second, _) => (value, 0),
+        DataType::Timestamp(TimeUnit::Microsecond, _) => (
+            value.div_euclid(MICROSECONDS),
+            value.rem_euclid(MICROSECONDS) * 1_000,
+        ),
+        _ => return value.to_string(),
+    };
+    match chrono::NaiveDateTime::from_timestamp_opt(seconds, nanos as u32) {
+        Some(datetime) if matches!(data_type, DataType::Date32) => {
+            datetime.date().to_string()
+        }
+        Some(datetime) => datetime.to_string(),
+        None => value.to_string(),
     }
 }
 
@@ -3519,6 +3626,170 @@ mod tests {
             .unwrap();
         assert_eq!(864000000000000000, c.value(0));
         assert_eq!(1545696000000000000, c.value(1));
+    }
+
+    /// Date32 106_751 is 2262-04-11, the last day whose start fits an `i64` of nanoseconds;
+    /// 106_752 and the far-future sentinel 9999-12-31 (2_932_896) do not.
+    #[test]
+    fn test_cast_date32_to_timestamp_out_of_range() {
+        let array = Arc::new(Date32Array::from(vec![
+            Some(106_751),
+            Some(106_752),
+            Some(-106_751),
+            Some(-106_752),
+            Some(2_932_896),
+            None,
+        ])) as ArrayRef;
+        let nanos = DataType::Timestamp(TimeUnit::Nanosecond, None);
+
+        // Safe cast: overflowing values become NULL, the rest are untouched.
+        let b = cast_with_options(&array, &nanos, &DEFAULT_CAST_OPTIONS).unwrap();
+        let c = b
+            .as_any()
+            .downcast_ref::<TimestampNanosecondArray>()
+            .unwrap();
+        assert_eq!(106_751 * 86_400_000_000_000, c.value(0));
+        assert!(c.is_null(1));
+        assert_eq!(-106_751 * 86_400_000_000_000, c.value(2));
+        assert!(c.is_null(3));
+        assert!(c.is_null(4));
+        assert!(c.is_null(5));
+
+        // Strict cast: an overflowing value is an error, not a panic.
+        let err = cast_with_options(&array, &nanos, &CUBESQL_CAST_OPTIONS).unwrap_err();
+        assert!(
+            err.to_string().contains(
+                "Cannot cast Date32 value 2262-04-12 to Timestamp(Nanosecond, None): out of range"
+            ),
+            "{}",
+            err
+        );
+
+        // Coarser units hold every day a Date32 can express.
+        let b = cast_with_options(
+            &array,
+            &DataType::Timestamp(TimeUnit::Millisecond, None),
+            &CUBESQL_CAST_OPTIONS,
+        )
+        .unwrap();
+        let c = b
+            .as_any()
+            .downcast_ref::<TimestampMillisecondArray>()
+            .unwrap();
+        assert_eq!(2_932_896 * 86_400_000, c.value(4));
+    }
+
+    #[test]
+    fn test_cast_timestamp_to_finer_unit_out_of_range() {
+        // 9999-12-31T00:00:00Z in seconds fits in milliseconds but not in nanoseconds.
+        let array = Arc::new(TimestampSecondArray::from_opt_vec(
+            vec![Some(253_402_214_400), Some(0), None],
+            None,
+        )) as ArrayRef;
+
+        let b = cast_with_options(
+            &array,
+            &DataType::Timestamp(TimeUnit::Millisecond, None),
+            &CUBESQL_CAST_OPTIONS,
+        )
+        .unwrap();
+        let c = b
+            .as_any()
+            .downcast_ref::<TimestampMillisecondArray>()
+            .unwrap();
+        assert_eq!(253_402_214_400_000, c.value(0));
+
+        let nanos = DataType::Timestamp(TimeUnit::Nanosecond, None);
+        let b = cast_with_options(&array, &nanos, &DEFAULT_CAST_OPTIONS).unwrap();
+        let c = b
+            .as_any()
+            .downcast_ref::<TimestampNanosecondArray>()
+            .unwrap();
+        assert!(c.is_null(0));
+        assert_eq!(0, c.value(1));
+        assert!(c.is_null(2));
+
+        let err = cast_with_options(&array, &nanos, &CUBESQL_CAST_OPTIONS).unwrap_err();
+        assert!(err.to_string().contains("out of range"), "{}", err);
+    }
+
+    /// The widening fast path reuses the input's null bitmap, so a sliced input and a null
+    /// slot holding a value that would overflow must both come out right.
+    #[test]
+    fn test_cast_timestamp_to_finer_unit_nulls_and_offset() {
+        let sliced = TimestampSecondArray::from_opt_vec(
+            vec![Some(1), None, Some(2), Some(3)],
+            None,
+        )
+        .slice(1, 3);
+        let b = cast_with_options(
+            &sliced,
+            &DataType::Timestamp(TimeUnit::Nanosecond, None),
+            &CUBESQL_CAST_OPTIONS,
+        )
+        .unwrap();
+        let c = b
+            .as_any()
+            .downcast_ref::<TimestampNanosecondArray>()
+            .unwrap();
+        assert_eq!(3, c.len());
+        assert_eq!(1, c.null_count());
+        assert!(c.is_null(0));
+        assert_eq!(2_000_000_000, c.value(1));
+        assert_eq!(3_000_000_000, c.value(2));
+
+        let garbage_under_null =
+            ArrayData::builder(DataType::Timestamp(TimeUnit::Second, None))
+                .len(2)
+                .add_buffer(Buffer::from_slice_ref(&[i64::MAX, 5]))
+                .null_bit_buffer(Buffer::from([0b10]))
+                .build()
+                .unwrap();
+        let array = Arc::new(TimestampSecondArray::from(garbage_under_null)) as ArrayRef;
+        let b = cast_with_options(
+            &array,
+            &DataType::Timestamp(TimeUnit::Nanosecond, None),
+            &CUBESQL_CAST_OPTIONS,
+        )
+        .unwrap();
+        let c = b
+            .as_any()
+            .downcast_ref::<TimestampNanosecondArray>()
+            .unwrap();
+        assert!(c.is_null(0));
+        assert_eq!(5_000_000_000, c.value(1));
+    }
+
+    #[test]
+    fn test_cast_out_of_range_error_names_the_instant() {
+        let array = Arc::new(TimestampSecondArray::from_opt_vec(
+            vec![Some(253_402_214_400)],
+            None,
+        )) as ArrayRef;
+        let err = cast_with_options(
+            &array,
+            &DataType::Timestamp(TimeUnit::Nanosecond, None),
+            &CUBESQL_CAST_OPTIONS,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("value 9999-12-31 00:00:00 to"),
+            "{}",
+            err
+        );
+
+        // A raw value no calendar reaches is reported as is.
+        assert_eq!(
+            describe_temporal_value(
+                &DataType::Timestamp(TimeUnit::Second, None),
+                i64::MAX
+            ),
+            i64::MAX.to_string()
+        );
+        assert_eq!(
+            describe_temporal_value(&DataType::Date32, i32::MIN as i64),
+            (i32::MIN as i64).to_string()
+        );
     }
 
     #[test]

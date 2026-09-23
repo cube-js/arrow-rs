@@ -73,7 +73,7 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
     // Fast path:  RFC3339 timestamp (with a T)
     // Example: 2020-09-08T13:42:29.190855Z
     if let Ok(ts) = DateTime::parse_from_rfc3339(s) {
-        return Ok(ts.timestamp_nanos());
+        return datetime_to_timestamp_nanos(s, &ts);
     }
 
     // Implement quasi-RFC3339 support by trying to parse the
@@ -84,13 +84,13 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
     // timezone offset, using ' ' as a separator
     // Example: 2020-09-08 13:42:29.190855-05:00
     if let Ok(ts) = DateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f%:z") {
-        return Ok(ts.timestamp_nanos());
+        return datetime_to_timestamp_nanos(s, &ts);
     }
 
     // with an explicit Z, using ' ' as a separator
     // Example: 2020-09-08 13:42:29Z
     if let Ok(ts) = Utc.datetime_from_str(s, "%Y-%m-%d %H:%M:%S%.fZ") {
-        return Ok(ts.timestamp_nanos());
+        return datetime_to_timestamp_nanos(s, &ts);
     }
 
     // Try to split off a trailing timezone offset and parse it manually.
@@ -98,13 +98,13 @@ pub fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
     // such as `+HH`, `+HHMM`, and `+HH:MM:SS` (chrono's `%:z`/`%::z`/`%:::z`
     // all only parse `+HH:MM`).
     if let Some(ts) = parse_timestamp_with_manual_offset(s) {
-        return Ok(ts);
+        return datetime_to_timestamp_nanos(s, &ts);
     }
 
     // Try to parse a trailing IANA timezone name, e.g.
     // `2026-06-15 00:00:00 America/Los_Angeles`, which PostgreSQL accepts.
     if let Some(ts) = parse_timestamp_with_named_tz(s) {
-        return Ok(ts);
+        return datetime_to_timestamp_nanos(s, &ts);
     }
 
     // Support timestamps without an explicit timezone offset, again
@@ -220,7 +220,7 @@ fn split_timestamp_offset(s: &str) -> Option<(&str, FixedOffset)> {
     None
 }
 
-fn parse_timestamp_with_manual_offset(s: &str) -> Option<i64> {
+fn parse_timestamp_with_manual_offset(s: &str) -> Option<DateTime<Utc>> {
     let (datetime_part, offset) = split_timestamp_offset(s)?;
     for fmt in &[
         "%Y-%m-%dT%H:%M:%S%.f",
@@ -230,7 +230,7 @@ fn parse_timestamp_with_manual_offset(s: &str) -> Option<i64> {
     ] {
         if let Ok(naive) = NaiveDateTime::parse_from_str(datetime_part, fmt) {
             let dt = offset.from_local_datetime(&naive).single()?;
-            return Some(dt.timestamp_nanos());
+            return Some(dt.with_timezone(&Utc));
         }
     }
     None
@@ -246,7 +246,7 @@ fn parse_timestamp_with_manual_offset(s: &str) -> Option<i64> {
 /// name is present, the name does not resolve, or the datetime part does
 /// not parse.
 #[cfg(feature = "chrono-tz")]
-fn parse_timestamp_with_named_tz(s: &str) -> Option<i64> {
+fn parse_timestamp_with_named_tz(s: &str) -> Option<DateTime<Utc>> {
     let (datetime_part, tz_name) = s.rsplit_once(' ')?;
     let tz: chrono_tz::Tz = tz_name.parse().ok()?;
     for fmt in &[
@@ -257,14 +257,14 @@ fn parse_timestamp_with_named_tz(s: &str) -> Option<i64> {
     ] {
         if let Ok(naive) = NaiveDateTime::parse_from_str(datetime_part, fmt) {
             let dt = tz.from_local_datetime(&naive).single()?;
-            return Some(dt.timestamp_nanos());
+            return Some(dt.with_timezone(&Utc));
         }
     }
     None
 }
 
 #[cfg(not(feature = "chrono-tz"))]
-fn parse_timestamp_with_named_tz(_s: &str) -> Option<i64> {
+fn parse_timestamp_with_named_tz(_s: &str) -> Option<DateTime<Utc>> {
     None
 }
 
@@ -279,7 +279,7 @@ fn naive_datetime_to_timestamp(s: &str, datetime: NaiveDateTime) -> Result<i64> 
             s
         ))),
         LocalResult::Single(local_datetime) => {
-            Ok(local_datetime.with_timezone(&Utc).timestamp_nanos())
+            datetime_to_timestamp_nanos(s, &local_datetime.with_timezone(&Utc))
         }
         // Ambiguous times can happen if the timestamp is exactly when
         // a daylight savings time transition occurs, for example, and
@@ -287,9 +287,27 @@ fn naive_datetime_to_timestamp(s: &str, datetime: NaiveDateTime) -> Result<i64> 
         // potential offsets. However, since we are about to convert
         // to UTC anyways, we can pick one arbitrarily
         LocalResult::Ambiguous(local_datetime, _) => {
-            Ok(local_datetime.with_timezone(&Utc).timestamp_nanos())
+            datetime_to_timestamp_nanos(s, &local_datetime.with_timezone(&Utc))
         }
     }
+}
+
+/// Converts a datetime to a nanosecond epoch timestamp, or a `CastError` when it doesn't fit.
+/// Not chrono's `timestamp_nanos`, which panics or wraps outside the range depending on version.
+fn datetime_to_timestamp_nanos<Tz: TimeZone>(
+    s: &str,
+    datetime: &DateTime<Tz>,
+) -> Result<i64> {
+    // Widened so the seconds, floored below the instant, can't overflow on their own while
+    // the exact nanosecond value still fits (the i64::MIN neighbourhood).
+    let nanos = datetime.timestamp() as i128 * 1_000_000_000
+        + datetime.timestamp_subsec_nanos() as i128;
+    i64::try_from(nanos).map_err(|_| {
+        ArrowError::CastError(format!(
+            "Error parsing '{}' as timestamp: value is out of range for a nanosecond timestamp",
+            s
+        ))
+    })
 }
 
 pub fn parse_interval_year_month(
@@ -711,6 +729,36 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn string_to_timestamp_nanosecond_range() {
+        // The last and first representable nanoseconds parse exactly.
+        assert_eq!(
+            parse_timestamp("2262-04-11T23:47:16.854775807Z").unwrap(),
+            i64::MAX
+        );
+        assert_eq!(
+            parse_timestamp("1677-09-21T00:12:43.145224192Z").unwrap(),
+            i64::MIN
+        );
+
+        // One nanosecond past either end, and far-future sentinels in every accepted
+        // shape, are errors rather than panics or wrapped garbage.
+        let expected = "value is out of range for a nanosecond timestamp";
+        for s in [
+            "2262-04-11T23:47:16.854775808Z",
+            "1677-09-21T00:12:43.145224191Z",
+            "9999-12-31T00:00:00Z",
+            "9999-12-31 00:00:00+00:00",
+            "9999-12-31 00:00:00Z",
+            "9999-12-31 00:00:00+0000",
+            "9999-12-31T00:00:00",
+            "9999-12-31 00:00:00",
+            "9999-12-31",
+        ] {
+            expect_timestamp_parse_error(s, expected);
+        }
     }
 
     #[test]
