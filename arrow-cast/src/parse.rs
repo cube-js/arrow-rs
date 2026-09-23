@@ -3231,6 +3231,37 @@ mod tests {
     }
 
     #[test]
+    fn string_to_timestamp_nanosecond_range() {
+        // The last and first representable nanoseconds parse exactly.
+        assert_eq!(
+            parse_timestamp("2262-04-11T23:47:16.854775807Z").unwrap(),
+            i64::MAX
+        );
+        assert_eq!(
+            parse_timestamp("1677-09-21T00:12:43.145224192Z").unwrap(),
+            i64::MIN
+        );
+
+        // One nanosecond past either end, and far-future sentinels in every accepted
+        // shape, are errors rather than panics or wrapped garbage.
+        for s in [
+            "2262-04-11T23:47:16.854775808Z",
+            "1677-09-21T00:12:43.145224191Z",
+            "9999-12-31T00:00:00Z",
+            "9999-12-31 00:00:00+00:00",
+            "9999-12-31 00:00:00Z",
+            "9999-12-31 00:00:00+0000",
+            "9999-12-31T00:00:00",
+            "9999-12-31 00:00:00",
+            "9999-12-31",
+            "9999-12-31 00:00:00 America/Los_Angeles",
+        ] {
+            let err = string_to_timestamp_nanos(s).unwrap_err().to_string();
+            assert!(err.ends_with(ERR_NANOSECONDS_NOT_SUPPORTED), "{s}: {err}");
+        }
+    }
+
+    #[test]
     fn test_parse_decimal_with_parameter() {
         let tests = [
             ("0", 0i128),

@@ -1905,14 +1905,13 @@ pub fn cast_with_options(
                     time_array.unary::<_, Int64Type>(|o| o / divisor)
                 }
                 Ordering::Equal => time_array.clone(),
-                Ordering::Less => {
-                    let mul = to_size / from_size;
-                    if cast_options.safe {
-                        time_array.unary_opt::<_, Int64Type>(|o| o.checked_mul(mul))
-                    } else {
-                        time_array.try_unary::<_, Int64Type, _>(|o| o.mul_checked(mul))?
-                    }
-                }
+                Ordering::Less => widen_temporal::<_, Int64Type>(
+                    time_array,
+                    to_size / from_size,
+                    from_type,
+                    to_type,
+                    cast_options,
+                )?,
             };
             // Normalize timezone
             let adjusted = match (from_tz, to_tz) {
@@ -2013,18 +2012,24 @@ pub fn cast_with_options(
         }
 
         (Date64, Timestamp(TimeUnit::Microsecond, _)) => {
-            let array = array
-                .as_primitive::<Date64Type>()
-                .reinterpret_cast::<TimestampMillisecondType>();
-
-            cast_with_options(&array, to_type, cast_options)
+            let converted = widen_temporal::<_, TimestampMicrosecondType>(
+                array.as_primitive::<Date64Type>(),
+                MICROSECONDS / MILLISECONDS,
+                from_type,
+                to_type,
+                cast_options,
+            )?;
+            cast_with_options(&converted, to_type, cast_options)
         }
         (Date64, Timestamp(TimeUnit::Nanosecond, _)) => {
-            let array = array
-                .as_primitive::<Date64Type>()
-                .reinterpret_cast::<TimestampMillisecondType>();
-
-            cast_with_options(&array, to_type, cast_options)
+            let converted = widen_temporal::<_, TimestampNanosecondType>(
+                array.as_primitive::<Date64Type>(),
+                NANOSECONDS / MILLISECONDS,
+                from_type,
+                to_type,
+                cast_options,
+            )?;
+            cast_with_options(&converted, to_type, cast_options)
         }
         (Date32, Timestamp(TimeUnit::Second, _)) => {
             let array = array
@@ -2041,29 +2046,23 @@ pub fn cast_with_options(
             cast_with_options(&array, to_type, cast_options)
         }
         (Date32, Timestamp(TimeUnit::Microsecond, _)) => {
-            let date_array = array.as_primitive::<Date32Type>();
-            let converted = if cast_options.safe {
-                date_array.unary_opt::<_, TimestampMicrosecondType>(|x| {
-                    (x as i64).checked_mul(MICROSECONDS_IN_DAY)
-                })
-            } else {
-                date_array.try_unary::<_, TimestampMicrosecondType, _>(|x| {
-                    (x as i64).mul_checked(MICROSECONDS_IN_DAY)
-                })?
-            };
+            let converted = widen_temporal::<_, TimestampMicrosecondType>(
+                array.as_primitive::<Date32Type>(),
+                MICROSECONDS_IN_DAY,
+                from_type,
+                to_type,
+                cast_options,
+            )?;
             cast_with_options(&converted, to_type, cast_options)
         }
         (Date32, Timestamp(TimeUnit::Nanosecond, _)) => {
-            let date_array = array.as_primitive::<Date32Type>();
-            let converted = if cast_options.safe {
-                date_array.unary_opt::<_, TimestampNanosecondType>(|x| {
-                    (x as i64).checked_mul(NANOSECONDS_IN_DAY)
-                })
-            } else {
-                date_array.try_unary::<_, TimestampNanosecondType, _>(|x| {
-                    (x as i64).mul_checked(NANOSECONDS_IN_DAY)
-                })?
-            };
+            let converted = widen_temporal::<_, TimestampNanosecondType>(
+                array.as_primitive::<Date32Type>(),
+                NANOSECONDS_IN_DAY,
+                from_type,
+                to_type,
+                cast_options,
+            )?;
             cast_with_options(&converted, to_type, cast_options)
         }
 
@@ -2284,6 +2283,54 @@ where
         _ => Err(ArrowError::CastError(format!(
             "Casting from {from_type} to {to_type} not supported"
         ))),
+    }
+}
+
+/// Multiplies each value by `factor` to convert a date or timestamp to a finer unit, which can
+/// overflow `i64`. An overflowing value follows `cast_options`: `NULL` when `safe`, otherwise an
+/// error naming the instant that does not fit.
+fn widen_temporal<I, O>(
+    array: &PrimitiveArray<I>,
+    factor: i64,
+    from_type: &DataType,
+    to_type: &DataType,
+    cast_options: &CastOptions,
+) -> Result<PrimitiveArray<O>, ArrowError>
+where
+    I: ArrowPrimitiveType,
+    I::Native: Into<i64>,
+    O: ArrowPrimitiveType<Native = i64>,
+{
+    if cast_options.safe {
+        Ok(array.unary_opt(|x| x.into().checked_mul(factor)))
+    } else {
+        array.try_unary(|x| {
+            let x = x.into();
+            x.checked_mul(factor).ok_or_else(|| {
+                ArrowError::CastError(format!(
+                    "Cannot cast {from_type:?} value {} to {to_type:?}: out of range",
+                    describe_temporal_value(from_type, x)
+                ))
+            })
+        })
+    }
+}
+
+/// Renders a raw date or timestamp value as the instant it stands for, for an error message.
+/// A value no calendar reaches, or of another type, is rendered as is.
+fn describe_temporal_value(data_type: &DataType, value: i64) -> String {
+    let datetime = match data_type {
+        DataType::Date32 => i32::try_from(value).ok().and_then(date32_to_datetime),
+        DataType::Date64 => date64_to_datetime(value),
+        DataType::Timestamp(TimeUnit::Second, _) => timestamp_s_to_datetime(value),
+        DataType::Timestamp(TimeUnit::Millisecond, _) => timestamp_ms_to_datetime(value),
+        DataType::Timestamp(TimeUnit::Microsecond, _) => timestamp_us_to_datetime(value),
+        _ => None,
+    };
+    match datetime {
+        Some(datetime) if *data_type == DataType::Date32 => datetime.date().to_string(),
+        Some(datetime) => datetime.to_string(),
+        None => value.to_string(),
     }
 }
 
@@ -5936,6 +5983,17 @@ mod tests {
         };
         let b = cast_with_options(&array, &DataType::Date64, &options);
         assert!(b.is_err());
+
+        // The strict overflow names the value as the other temporal widenings do
+        let array = TimestampSecondArray::from(vec![Some(0), Some(i64::MAX / 100)]);
+        let err = cast_with_options(&array, &DataType::Date64, &CUBESQL_CAST_OPTIONS).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Cast error: Cannot cast Timestamp(Second, None) value 92233720368547758 to Date64: out of range"
+        );
+        let b = cast_with_options(&array, &DataType::Date64, &CastOptions::default()).unwrap();
+        assert!(b.is_valid(0));
+        assert!(b.is_null(1));
     }
 
     #[test]
@@ -10115,6 +10173,153 @@ mod tests {
         let c = b.as_primitive::<TimestampNanosecondType>();
         assert_eq!(upper_limit as i64 * NANOSECONDS_IN_DAY, c.value(0));
         assert!(c.is_null(1));
+        assert!(c.is_null(2));
+    }
+
+    /// Date32 106_751 is 2262-04-11, the last day whose start fits an `i64` of nanoseconds;
+    /// 106_752 and the far-future sentinel 9999-12-31 (2_932_896) do not.
+    #[test]
+    fn test_cast_date32_to_timestamp_out_of_range() {
+        let array = Arc::new(Date32Array::from(vec![
+            Some(106_751),
+            Some(106_752),
+            Some(-106_751),
+            Some(-106_752),
+            Some(2_932_896),
+            None,
+        ])) as ArrayRef;
+        let nanos = DataType::Timestamp(TimeUnit::Nanosecond, None);
+
+        // Safe cast: overflowing values become NULL, the rest are untouched.
+        let b = cast_with_options(&array, &nanos, &CastOptions::default()).unwrap();
+        let c = b.as_primitive::<TimestampNanosecondType>();
+        assert_eq!(106_751 * NANOSECONDS_IN_DAY, c.value(0));
+        assert!(c.is_null(1));
+        assert_eq!(-106_751 * NANOSECONDS_IN_DAY, c.value(2));
+        assert!(c.is_null(3));
+        assert!(c.is_null(4));
+        assert!(c.is_null(5));
+
+        // Strict cast: an overflowing value is an error naming the date.
+        let err = cast_with_options(&array, &nanos, &CUBESQL_CAST_OPTIONS).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Cast error: Cannot cast Date32 value 2262-04-12 to Timestamp(Nanosecond, None): out of range"
+        );
+
+        // Coarser units hold every day a Date32 can express.
+        let b = cast_with_options(
+            &array,
+            &DataType::Timestamp(TimeUnit::Millisecond, None),
+            &CUBESQL_CAST_OPTIONS,
+        )
+        .unwrap();
+        let c = b.as_primitive::<TimestampMillisecondType>();
+        assert_eq!(2_932_896 * MILLISECONDS_IN_DAY, c.value(4));
+    }
+
+    #[test]
+    fn test_cast_timestamp_to_finer_unit_out_of_range() {
+        // 9999-12-31T00:00:00Z in seconds fits in milliseconds but not in nanoseconds.
+        let array = Arc::new(TimestampSecondArray::from(vec![
+            Some(253_402_214_400),
+            Some(0),
+            None,
+        ])) as ArrayRef;
+
+        let b = cast_with_options(
+            &array,
+            &DataType::Timestamp(TimeUnit::Millisecond, None),
+            &CUBESQL_CAST_OPTIONS,
+        )
+        .unwrap();
+        let c = b.as_primitive::<TimestampMillisecondType>();
+        assert_eq!(253_402_214_400_000, c.value(0));
+
+        let nanos = DataType::Timestamp(TimeUnit::Nanosecond, None);
+        let b = cast_with_options(&array, &nanos, &CastOptions::default()).unwrap();
+        let c = b.as_primitive::<TimestampNanosecondType>();
+        assert!(c.is_null(0));
+        assert_eq!(0, c.value(1));
+        assert!(c.is_null(2));
+
+        let err = cast_with_options(&array, &nanos, &CUBESQL_CAST_OPTIONS).unwrap_err();
+        assert!(err.to_string().contains("out of range"), "{err}");
+    }
+
+    /// A sliced input and a null slot holding a value that would overflow must both come out
+    /// right from a strict widening cast.
+    #[test]
+    fn test_cast_timestamp_to_finer_unit_nulls_and_offset() {
+        let nanos = DataType::Timestamp(TimeUnit::Nanosecond, None);
+        let sliced = TimestampSecondArray::from(vec![Some(1), None, Some(2), Some(3)]).slice(1, 3);
+        let b = cast_with_options(&sliced, &nanos, &CUBESQL_CAST_OPTIONS).unwrap();
+        let c = b.as_primitive::<TimestampNanosecondType>();
+        assert_eq!(3, c.len());
+        assert_eq!(1, c.null_count());
+        assert!(c.is_null(0));
+        assert_eq!(2_000_000_000, c.value(1));
+        assert_eq!(3_000_000_000, c.value(2));
+
+        let garbage_under_null =
+            TimestampSecondArray::new(vec![i64::MAX, 5].into(), Some(vec![false, true].into()));
+        let b = cast_with_options(&garbage_under_null, &nanos, &CUBESQL_CAST_OPTIONS).unwrap();
+        let c = b.as_primitive::<TimestampNanosecondType>();
+        assert!(c.is_null(0));
+        assert_eq!(5_000_000_000, c.value(1));
+    }
+
+    #[test]
+    fn test_cast_out_of_range_error_names_the_instant() {
+        let array = Arc::new(TimestampSecondArray::from(vec![Some(253_402_214_400)])) as ArrayRef;
+        let err = cast_with_options(
+            &array,
+            &DataType::Timestamp(TimeUnit::Nanosecond, None),
+            &CUBESQL_CAST_OPTIONS,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("value 9999-12-31 00:00:00 to"),
+            "{err}"
+        );
+
+        // A raw value no calendar reaches is reported as is.
+        assert_eq!(
+            describe_temporal_value(&DataType::Timestamp(TimeUnit::Second, None), i64::MAX),
+            i64::MAX.to_string()
+        );
+        assert_eq!(
+            describe_temporal_value(&DataType::Date32, i32::MIN as i64),
+            (i32::MIN as i64).to_string()
+        );
+    }
+
+    /// Date64 widens straight to the finer timestamp unit, so an overflow names the Date64
+    /// value rather than an intermediate millisecond timestamp.
+    #[test]
+    fn test_cast_date64_to_timestamp_out_of_range() {
+        // 9999-12-31 fits in microseconds but not in nanoseconds.
+        let array = Date64Array::from(vec![Some(253_402_214_400_000), Some(0), None]);
+        let nanos = DataType::Timestamp(TimeUnit::Nanosecond, None);
+
+        let b = cast_with_options(&array, &nanos, &CastOptions::default()).unwrap();
+        let c = b.as_primitive::<TimestampNanosecondType>();
+        assert!(c.is_null(0));
+        assert_eq!(0, c.value(1));
+        assert!(c.is_null(2));
+
+        let err = cast_with_options(&array, &nanos, &CUBESQL_CAST_OPTIONS).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Cast error: Cannot cast Date64 value 9999-12-31 00:00:00 to Timestamp(Nanosecond, None): out of range"
+        );
+
+        let micros = DataType::Timestamp(TimeUnit::Microsecond, Some("+00:00".into()));
+        let b = cast_with_options(&array, &micros, &CUBESQL_CAST_OPTIONS).unwrap();
+        assert_eq!(&micros, b.data_type());
+        let c = b.as_primitive::<TimestampMicrosecondType>();
+        assert_eq!(253_402_214_400_000_000, c.value(0));
+        assert_eq!(0, c.value(1));
         assert!(c.is_null(2));
     }
 

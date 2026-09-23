@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use num_traits::AsPrimitive;
 
-use super::{CastOptions, time_unit_multiple, units_per_day};
+use super::{CastOptions, describe_temporal_value, time_unit_multiple, units_per_day};
 
 /// Cast the array from interval year month to month day nano
 pub(crate) fn cast_interval_year_month_to_interval_month_day_nano(
@@ -397,7 +397,17 @@ pub(crate) fn timestamp_to_date64<T: ArrowTimestampType>(
             if cast_options.safe {
                 array.unary_opt(date)
             } else {
-                array.try_unary(|x| date(x).ok_or_else(|| err(x)))?
+                // The same wording as `widen_temporal`, which v13 used for this overflow
+                let from_type = array.data_type();
+                array.try_unary(|x| {
+                    date(x).ok_or_else(|| {
+                        ArrowError::CastError(format!(
+                            "Cannot cast {from_type:?} value {} to {:?}: out of range",
+                            describe_temporal_value(from_type, x),
+                            DataType::Date64
+                        ))
+                    })
+                })?
             }
         }
     };
