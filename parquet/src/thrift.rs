@@ -114,6 +114,10 @@ impl TInputProtocol for TCompactSliceInputProtocol<'_> {
         thrift_unimplemented!()
     }
 
+    fn read_uuid(&mut self) -> thrift::Result<uuid::Uuid> {
+        thrift_unimplemented!()
+    }
+
     fn read_struct_begin(&mut self) -> thrift::Result<Option<TStructIdentifier>> {
         self.read_field_id_stack.push(self.last_read_field_id);
         self.last_read_field_id = 0;
